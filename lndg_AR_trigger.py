@@ -28,7 +28,7 @@ username      = ""
 password      = ""
 
 CHANNELS_API_URL   = f"{LNDG_BASE_URL}/api/channels/?is_open=true&is_active=true"
-CHANNEL_UPDATE_URL = f"{LNDG_BASE_URL}/api/channels/{chan_id}/"
+CHANNEL_UPDATE_URL = f"{LNDG_BASE_URL}/api/channels/{{chan_id}}/"
 
 # LNDg DB (para custo de rebal 7d)
 DB_PATH = ""
