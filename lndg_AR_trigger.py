@@ -13,41 +13,40 @@ import time
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 
-
 # =========================
 # HARD-CODE CONFIG
 # =========================
 
 # Telegram
-TELEGRAM_TOKEN = ""
-CHATID         = ""
+TELEGRAM_TOKEN = "SEU TOKEN TELEGRAM"
+CHATID         = "SEU CHAT ID"
 
 # LNDg API
-LNDG_BASE_URL = ""
-username      = ""
-password      = ""
+LNDG_BASE_URL = "http://ip-maquina-lndg:8889"
+username      = "lndg-admin"
+password      = "senha_lndg"
 
 CHANNELS_API_URL   = f"{LNDG_BASE_URL}/api/channels/?is_open=true&is_active=true"
 CHANNEL_UPDATE_URL = f"{LNDG_BASE_URL}/api/channels/{{chan_id}}/"
 
 # LNDg DB (para custo de rebal 7d)
-DB_PATH = ""
+DB_PATH = "/home/admin/lndg/data/db.sqlite3"
 LOOKBACK_DAYS = 7
 
-# AutoFee cache/state (decisoes + persistir cooldown AR)
+# AutoFee cache/state (decisões + persistir cooldown AR)
 CACHE_PATH = "/home/admin/.cache/auto_fee_amboss.json"
 STATE_PATH = "/home/admin/.cache/auto_fee_state.json"
 
-# Origem dos parametros do AutoFee (arquivo oficial) + cache opcional
-AUTO_FEE_FILE          = "/home/admin/lndtools/brln-autofee-2.py"
-AUTO_FEE_PARAMS_CACHE  = "/home/admin/lndtools/params_autofee.json"   # opcional
+# Origem dos parâmetros do AutoFee (arquivo oficial) + cache opcional
+AUTO_FEE_FILE          = "/home/admin/nr-tools/brln-autofee pro/brln-autofee-pro.py"
+AUTO_FEE_PARAMS_CACHE  = "/home/admin/nr-tools/brln-autofee pro/params_autofee.json"   # opcional
 
 # Log local (auditoria)
-LOG_PATH = ""
+LOG_PATH = "/home/admin/lndg_ar_actions.log"
 
-# Versao centralizada (1a linha util define a versao ativa)
-# Formato: 0.2.9 - Descricao opcional
-VERSIONS_FILE = ""
+# Versão centralizada (texto): 1ª linha útil define a versão ativa
+# Ex.: 0.2.9 - Descrição da versão
+VERSIONS_FILE = "/home/admin/nr-tools/brln-autofee pro/versions.txt"
 
 # Histerese no alvo de outbound (pontos percentuais)
 HYSTERESIS_PP = 5
@@ -277,9 +276,119 @@ def load_json(path: str) -> Dict[str, Any]:
 def save_json(path: str, data: Dict[str, Any]) -> None:
     try:
         with open(path, "w") as f:
-            json.dump(data, f, ensure_ascii=False, sort_keys=True, indent=2)
+            json.dump(data, f)
     except Exception:
         pass
+
+# =========================
+# Parâmetros do AutoFee (direto do brln-autofee-2.py)
+# =========================
+
+AF_PARAM_NAMES = [
+    "LOW_OUTBOUND_THRESH",
+    "HIGH_OUTBOUND_THRESH",
+    "LOW_OUTBOUND_BUMP",
+    "HIGH_OUTBOUND_CUT",
+    "IDLE_EXTRA_CUT",
+]
+
+_FLOAT_RE = re.compile(r"^\s*([A-Z_]+)\s*=\s*([0-9]*\.?[0-9]+)\s*(#.*)?$", re.MULTILINE)
+
+def parse_autofee_py(path: str) -> Dict[str, float]:
+    params: Dict[str, float] = {}
+    try:
+        with open(path, "r") as f:
+            text = f.read()
+        for m in _FLOAT_RE.finditer(text):
+            name, val = m.group(1), m.group(2)
+            if name in AF_PARAM_NAMES:
+                try:
+                    params[name] = float(val)
+                except Exception:
+                    pass
+    except Exception:
+        return {}
+    return params
+
+def load_autofee_params() -> Dict[str, float]:
+    """
+    1) Tenta cache JSON (se existir).
+    2) Lê e parseia o brln-autofee-2.py.
+    3) Se conseguiu parsear, escreve/atualiza o cache.
+    4) Fallbacks sensatos.
+    """
+    params = {}
+    # passo 1: cache
+    if os.path.isfile(AUTO_FEE_PARAMS_CACHE):
+        params.update(load_json(AUTO_FEE_PARAMS_CACHE))
+
+    # passo 2: arquivo oficial
+    parsed = parse_autofee_py(AUTO_FEE_FILE)
+    if parsed:
+        params.update(parsed)
+        # passo 3: atualiza cache
+        try:
+            save_json(AUTO_FEE_PARAMS_CACHE, params)
+        except Exception:
+            pass
+
+    # passo 4: fallbacks
+    params.setdefault("LOW_OUTBOUND_THRESH", 0.05)
+    params.setdefault("HIGH_OUTBOUND_THRESH", 0.20)
+    params.setdefault("LOW_OUTBOUND_BUMP",   0.01)
+    params.setdefault("HIGH_OUTBOUND_CUT",   0.01)
+    params.setdefault("IDLE_EXTRA_CUT",      0.005)
+
+    return params
+
+# =========================
+# LNDg API
+# =========================
+
+async def fetch_all_channels(session: aiohttp.ClientSession) -> List[Dict[str, Any]]:
+    url = CHANNELS_API_URL
+    out: List[Dict[str, Any]] = []
+    auth = aiohttp.BasicAuth(username, password)
+    while url:
+        async with session.get(url, auth=auth) as r:
+            if r.status != 200:
+                raise RuntimeError(f"GET {url} -> {r.status}: {await safe_text(r)}")
+            data = await r.json()
+            if isinstance(data, dict) and "results" in data:
+                out.extend(data.get("results", []))
+                url = data.get("next")
+            elif isinstance(data, list):
+                out.extend(data); url = None
+            else:
+                out.extend(data.get("results", []))
+                url = data.get("next")
+    return out
+
+async def update_channel(session: aiohttp.ClientSession, chan_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    url = CHANNEL_UPDATE_URL.format(chan_id=chan_id)
+    auth = aiohttp.BasicAuth(username, password)
+    async with session.put(url, json=payload, auth=auth) as r:
+        if r.status == 200:
+            return await r.json()
+        if r.status in (400, 405):
+            async with session.patch(url, json=payload, auth=auth) as rp:
+                if rp.status == 200:
+                    return await rp.json()
+                raise RuntimeError(f"PATCH {url} -> {rp.status}: {await safe_text(rp)}")
+        raise RuntimeError(f"PUT {url} -> {r.status}: {await safe_text(r)}")
+
+# =========================
+# DB LNDg → custo rebal 7d
+# =========================
+
+def to_sqlite_str(dt: datetime) -> str:
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.isoformat(sep=' ', timespec='seconds')
+
+def ppm(total_fee_sat: int, total_amt_sat: int) -> float:
+    if total_amt_sat <= 0: return 0.0
+    return (total_fee_sat / total_amt_sat) * 1_000_000.0
 
 def load_rebal_costs(db_path: str, lookback_days: int = 7):
     t2 = datetime.now(timezone.utc)
