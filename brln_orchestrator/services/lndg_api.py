@@ -32,6 +32,12 @@ class LNDgAPI:
 
     def update_channel(self, chan_id: str, payload: Dict[str, Any]) -> None:
         url = f"{self._base_url}/api/channels/{chan_id}/"
-        resp = requests.patch(url, json=payload, auth=self._auth, timeout=20)
+        resp = requests.put(url, json=payload, auth=self._auth, timeout=20)
+        if 200 <= resp.status_code < 300:
+            return
+        if resp.status_code in (400, 405):
+            resp = requests.patch(url, json=payload, auth=self._auth, timeout=20)
+            resp.raise_for_status()
+            return
+        # Preserve original error details for other status codes
         resp.raise_for_status()
-
