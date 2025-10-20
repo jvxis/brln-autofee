@@ -66,6 +66,8 @@ python3 -m brln_orchestrator exclusions rm 0247...
 python3 -m brln_orchestrator exclusions list
 ```
 
+Use sempre `pubkeys` para excluir do Autofee e `channel IDs` para excluir do Rebalance.
+
 As exclusões são aplicadas tanto no AutoFee (pubkeys) quanto no AR Trigger (channel IDs).
 Em **dry-run**, o console lista as entradas ignoradas para conferência rápida.
 
@@ -74,7 +76,7 @@ Em **dry-run**, o console lista as entradas ignoradas para conferência rápida.
 Canal em `FORCE_SOURCE_LIST` continua válido, agora via SQLite:
 
 ```bash
-python3 -m brln_orchestrator forced-sources add 9737... --note "Flow crítico outbound"
+python3 -m brln_orchestrator forced-sources add 9737... --note "nome do peer"
 python3 -m brln_orchestrator forced-sources rm 9737...
 python3 -m brln_orchestrator forced-sources list
 ```
