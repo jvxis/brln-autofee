@@ -1344,6 +1344,19 @@ def main(dry_run=False):
         if DEBUG_TAGS:
             class_tags.append(f"🧭bias{bias_ema:+.2f}")
             class_tags.append(f"🧭{class_label}:{class_conf:.2f}")
+        # >>> PATCH [A]: usar out_ppm7d como custo efetivo p/ source/router sem rebal por canal
+        use_out_cost = False
+        no_chan_rebal = (perchan_value_sat.get(cid, 0) == 0)
+
+        if class_label in ("source", "router") and no_chan_rebal and (out_ppm_7d or 0) > 0:
+            use_out_cost = True
+            # Trate o "custo" como o preço já observado de venda (out_ppm7d)
+            base_cost_for_margin = float(out_ppm_7d)
+            # Margem compara "preço realizado" vs "custo" (com a mesma margem de piso)
+            margin_ppm_7d = int(round(out_ppm_7d - (base_cost_for_margin * (1.0 + REBAL_FLOOR_MARGIN))))
+            # Exibir de forma clara que o "rebal_ppm7d" aqui está vindo do out_ppm (não do gui_payments)
+            rebal_ppm7d_val = int(round(out_ppm_7d))
+            rebal_ppm7d_str = f"{rebal_ppm7d_val}(out)"
 
         # --- Escalada por persistência (ANTES do ajuste de liquidez) ---
         streak = state.get(cid, {}).get("low_streak", 0)
@@ -1425,6 +1438,14 @@ def main(dry_run=False):
 
         # clamp do alvo e guarda "no-down while low"
         target = clamp_ppm(boosted_target)
+        # >>> PATCH [B]: em use_out_cost, tender a alinhar alvo ao out_ppm observado, reduzindo taxa
+        if use_out_cost and (out_ppm_7d or 0) > 0 and target > out_ppm_7d:
+            # 10% abaixo do market observado, com proteção pelo seed em source
+            target_hint = int(round(out_ppm_7d * 0.90))
+            if class_label == "source":
+                # respeita preferência por alvo mais baixo relativo ao seed
+                target_hint = min(target_hint, clamp_ppm(int(seed_used * SOURCE_SEED_TARGET_FRAC)))
+            target = clamp_ppm(max(MIN_PPM, target_hint))
 
         pl_tags = []
         if (not new_inbound) and out_ratio < PERSISTENT_LOW_THRESH and target < local_ppm:
@@ -1501,12 +1522,18 @@ def main(dry_run=False):
         # Piso de rebal conforme REBAL_COST_MODE
         if REBAL_FLOOR_ENABLE:
             base_cost = pick_rebal_cost_for_floor(cid, rebal_cost_ppm_by_chan_use, rebal_cost_ppm_global)
+
+            # >>> PATCH [C]: em source/router sem rebal por canal, não travar por custo global
+            if use_out_cost:
+                base_cost = 0.0
+
             if base_cost > 0:
                 floor_ppm = clamp_ppm(math.ceil(base_cost * (1.0 + REBAL_FLOOR_MARGIN)))
             else:
                 floor_ppm = MIN_PPM
         else:
             floor_ppm = MIN_PPM
+
 
         # Outrate floor dinâmico
         outrate_floor_active = OUTRATE_FLOOR_ENABLE
@@ -1995,3 +2022,4 @@ if __name__ == "__main__":
 
 
     main(dry_run=args.dry_run)
+
