@@ -254,6 +254,7 @@ def get_7d_kpis():
     kpis["profit_sat"] = kpis["out_fee_sat"] - kpis["rebal_fee_sat"]
     kpis["profit_ppm_est"] = kpis["out_ppm7d"] - (kpis["rebal_cost_ppm7d"] if kpis["rebal_cost_ppm7d"]>0 else 0)
     kpis["margin_ppm"] = margin_ppm(kpis["out_ppm7d"], kpis["rebal_cost_ppm7d"])
+    kpis["pnl_ppm_on_out"] = ppm(out_fee_sat - rb_fee, out_amt_sat)
     return kpis
 
 def read_symptoms_from_logs():
@@ -414,7 +415,7 @@ def get_assisted_kpis(out_amt_sat_for_ppm: int):
 
     assisted_rev_sat = int(round(assisted_fee_sat))
     assisted_ppm = (assisted_fee_sat / out_amt_sat_for_ppm) * 1_000_000.0 if out_amt_sat_for_ppm > 0 else 0.0
-
+  
     return {
         "assisted_rev7d": assisted_rev_sat,
         "assisted_ppm": assisted_ppm,
@@ -489,7 +490,9 @@ def adjust(overrides, kpis, symptoms):
     prof_sat   = kpis.get("profit_sat_adj", kpis.get("profit_sat"))
     out_ppm    = kpis["out_ppm7d"]
     rebal_ppm  = kpis["rebal_cost_ppm7d"]
-    profit_ppm = kpis.get("profit_ppm_adj", kpis.get("profit_ppm_est"))
+    profit_ppm = kpis.get("profit_ppm_out_adj",
+                  kpis.get("profit_ppm_adj",
+                  kpis.get("profit_ppm_est")))
     marg       = kpis["margin_ppm"]
 
     def get(k):
@@ -607,7 +610,7 @@ def adjust(overrides, kpis, symptoms):
         allow_relief = True
         causes.append("alivio_imediato_margem")
     # *** PATCH: assisted ***
-    elif symptoms.get("floor_lock", 0) >= RELIEF_HYST_FLOORLOCK_MIN and kpis.get("profit_ppm_adj", kpis.get("profit_ppm_est", 0)) < 0:
+    elif symptoms.get("floor_lock", 0) >= RELIEF_HYST_FLOORLOCK_MIN and kpis.get("profit_ppm_out_adj", kpis.get("profit_ppm_adj", kpis.get("profit_ppm_est", 0))) < 0:
         allow_relief = True  # condicionado ao contador no main
 
     if allow_relief:
@@ -780,21 +783,24 @@ def can_change_now(meta):
     return hours >= MIN_HOURS_BETWEEN_CHANGES
 
 # === streaks com métricas ajustadas ===
-def update_bad_streak(meta, profit_ppm_adj):
-    if profit_ppm_adj < 0:
+def update_bad_streak(meta, prof_sat_adj, profit_ppm_out_adj):
+    # marca "bad" só quando há prejuízo em sats e P&L ppm também < 0
+    if (prof_sat_adj <= 0) and (profit_ppm_out_adj < 0):
         meta["bad_streak"] = int(meta.get("bad_streak", 0)) + 1
     else:
         meta["bad_streak"] = 0
 
-def update_good_streak(meta, prof_sat_adj, profit_ppm_adj):
-    if profit_ppm_adj > 0 and prof_sat_adj >= SAT_PROFIT_MIN:
+def update_good_streak(meta, prof_sat_adj, profit_ppm_out_adj):
+    # marca "good" quando há P&L ppm positivo e lucro em sats suficiente
+    if (profit_ppm_out_adj > 0) and (prof_sat_adj >= SAT_PROFIT_MIN):
         meta["good_streak"] = int(meta.get("good_streak", 0)) + 1
     else:
         meta["good_streak"] = 0
 
+
 def update_relief_hysteresis(meta, symptoms, kpis):
     # *** PATCH: assisted ***
-    cond = (symptoms.get("floor_lock", 0) >= RELIEF_HYST_FLOORLOCK_MIN and kpis.get("profit_ppm_adj", kpis.get("profit_ppm_est", 0)) < 0)
+    cond = (symptoms.get("floor_lock", 0) >= RELIEF_HYST_FLOORLOCK_MIN and kpis.get("profit_ppm_out_adj", kpis.get("profit_ppm_est", 0)) < 0)
     if cond:
         meta["hyst_relief_count"] = int(meta.get("hyst_relief_count", 0)) + 1
     else:
@@ -989,7 +995,8 @@ def build_tg_message(version_info, now_local, kpis, symptoms, proposed, meta, dr
         f"ppm_rebal=<code>{fmt_num(kpis.get('rebal_cost_ppm7d',0.0))}</code> | "
         f"profit_sat=<code>{fmt_num(kpis.get('profit_sat',0))}</code> | "
         f"profit_ppm≈<code>{fmt_num(kpis.get('profit_ppm_est',0.0))}</code> | "
-        f"margin≈<code>{fmt_num(kpis.get('margin_ppm',0.0))}</code>"
+        f"margin≈<code>{fmt_num(kpis.get('margin_ppm',0.0))}</code> | "
+        f"pnl_ppm_on_out≈<code>{fmt_num(kpis.get('pnl_ppm_on_out',0.0))}</code>"
     )
 
     kp_assist = ""
@@ -999,7 +1006,8 @@ def build_tg_message(version_info, now_local, kpis, symptoms, proposed, meta, dr
             f"assisted_ppm≈<code>{fmt_num(kpis.get('assisted_ppm',0.0))}</code> | "
             f"α=<code>{fmt_num(ASSISTED_WEIGHT_ALPHA)}</code>\n"
             f"• profit_sat_adj=<code>{fmt_num(kpis.get('profit_sat_adj',0))}</code> | "
-            f"profit_ppm_adj≈<code>{fmt_num(kpis.get('profit_ppm_adj',0.0))}</code>"
+            f"profit_ppm_adj≈<code>{fmt_num(kpis.get('profit_ppm_adj',0.0))}</code> | "
+            f"profit_ppm_out_adj≈<code>{fmt_num(kpis.get('profit_ppm_out_adj',0.0))}</code>"
         )
 
     sy = (
@@ -1088,6 +1096,9 @@ def main(dry_run=False, verbose=True, force_telegram=False, no_telegram=False):
     assisted_ppm = kpis.get("assisted_ppm", 0.0)
     kpis["profit_sat_adj"] = kpis.get("profit_sat", 0) + ASSISTED_WEIGHT_ALPHA * assisted_rev
     kpis["profit_ppm_adj"] = kpis.get("profit_ppm_est", 0.0) + ASSISTED_WEIGHT_ALPHA * assisted_ppm
+    # P&L ppm “on out” e sua versão assistida
+    kpis["profit_ppm_out"] = kpis.get("pnl_ppm_on_out", 0.0)
+    kpis["profit_ppm_out_adj"] = kpis["profit_ppm_out"] + ASSISTED_WEIGHT_ALPHA * assisted_ppm
 
     symptoms = read_symptoms_from_logs()
 
@@ -1100,8 +1111,9 @@ def main(dry_run=False, verbose=True, force_telegram=False, no_telegram=False):
     rollover_daily_budget_if_needed(meta)
 
     # Streaks + histerese com métricas ajustadas
-    update_bad_streak(meta, kpis.get("profit_ppm_adj", 0.0))
-    update_good_streak(meta, kpis.get("profit_sat_adj", 0), kpis.get("profit_ppm_adj", 0.0))
+    update_bad_streak(meta, kpis.get("profit_sat_adj", 0), kpis.get("profit_ppm_out_adj", 0.0))
+    update_good_streak(meta, kpis.get("profit_sat_adj", 0), kpis.get("profit_ppm_out_adj", 0.0))
+
     update_relief_hysteresis(meta, symptoms, kpis)
 
     proposed = {}
@@ -1130,7 +1142,7 @@ def main(dry_run=False, verbose=True, force_telegram=False, no_telegram=False):
         # *** PATCH: assisted ***
         # decisão de severidade e bypass com métricas ajustadas
         prof_sat_eff = kpis.get("profit_sat_adj", kpis.get("profit_sat", 0))
-        profit_ppm_eff = kpis.get("profit_ppm_adj", kpis.get("profit_ppm_est", 0))
+        profit_ppm_eff = kpis.get("profit_ppm_out_adj", kpis.get("profit_ppm_adj", kpis.get("profit_ppm_est", 0)))
         severe_bad = (prof_sat_eff <= 0 or profit_ppm_eff < PPM_WORSE)
         too_many_floorlocks = (symptoms.get("floor_lock", 0) >= 20)
         if proposed and severe_bad:
@@ -1154,7 +1166,7 @@ def main(dry_run=False, verbose=True, force_telegram=False, no_telegram=False):
             discard_reasons = explain_discarded_changes(cur, pre_budget, proposed, meta)
 
         # === PATCH: severe fast-track no agregador ===
-        severe_fast = (kpis.get("profit_ppm_adj", 0.0) < -190.0) and (symptoms.get("floor_lock", 0) > 120)
+        severe_fast = (kpis.get("profit_ppm_out_adj", kpis.get("profit_ppm_adj", 0.0)) < -190.0) and (symptoms.get("floor_lock", 0) > 120)
         if proposed:
             aggregated, released = apply_deferred_aggregator(cur, proposed, meta, fast_track=severe_fast)
             if released:
