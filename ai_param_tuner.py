@@ -86,8 +86,8 @@ DEFAULTS = {
 # =========================
 # Anti-ratchet (higiene)
 # =========================
-MIN_HOURS_BETWEEN_CHANGES = 6
-REQUIRED_BAD_STREAK = 6
+MIN_HOURS_BETWEEN_CHANGES = 4
+REQUIRED_BAD_STREAK = 2
 
 # Orçamento diário de variação ABSOLUTA por chave
 DAILY_CHANGE_BUDGET = {
