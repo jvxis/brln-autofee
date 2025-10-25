@@ -32,12 +32,12 @@ def _load_legacy(path: Path):
 SYMPTOM_KEYS = ("floor_lock", "no_down_low", "hold_small", "cb_trigger", "discovery")
 SYMPTOM_HEADER_RE = re.compile(r"(?:DRY[-\s]*RUN\s*)?[\u2699\uFE0F\u200D\uFE0F]*\s*AutoFee\s*\|\s*janela\s*\d+d", re.IGNORECASE)
 SYMPTOM_DICT_RE = re.compile(r"Symptoms:\s*\{([^}]*)\}", re.IGNORECASE)
-SYMPTOM_FALLBACK_PATTERNS = {
-    "floor_lock": re.compile(r"floor[_\s-]*lock\s*[:=]\s*([0-9]+)", re.IGNORECASE),
-    "no_down_low": re.compile(r"no[_\s-]*down[_\s-]*low\s*[:=]\s*([0-9]+)", re.IGNORECASE),
-    "hold_small": re.compile(r"hold[_\s-]*small\s*[:=]\s*([0-9]+)", re.IGNORECASE),
-    "cb_trigger": re.compile(r"cb[_\s-]*trigger\s*[:=]\s*([0-9]+)", re.IGNORECASE),
-    "discovery": re.compile(r"discovery\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+SYMPTOM_TOKEN_PATTERNS = {
+    "floor_lock": re.compile(r"floor[-_\s]*lock", re.IGNORECASE),
+    "no_down_low": re.compile(r"no[-_\s]*down[-_\s]*low", re.IGNORECASE),
+    "hold_small": re.compile(r"hold[-_\s]*small", re.IGNORECASE),
+    "cb_trigger": re.compile(r"(?:cb[-_\s]*trigger|cb\s*[:=])", re.IGNORECASE),
+    "discovery": re.compile(r"discovery", re.IGNORECASE),
 }
 
 
@@ -70,12 +70,11 @@ def _extract_symptoms_from_text(text: Optional[str]) -> Optional[Dict[str, int]]
                         if value.isdigit():
                             counts[key] = int(value)
                             found = True
-    if not found:
-        for key, pattern in SYMPTOM_FALLBACK_PATTERNS.items():
-            matches = list(pattern.finditer(block))
-            if matches:
-                counts[key] = int(matches[-1].group(1))
-                found = True
+    for key, pattern in SYMPTOM_TOKEN_PATTERNS.items():
+        matches = pattern.findall(block)
+        if matches:
+            counts[key] += len(matches)
+            found = True
     return counts if found else None
 
 
