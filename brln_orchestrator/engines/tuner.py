@@ -5,11 +5,12 @@ import datetime
 import importlib.util
 import io
 import json
+import re
 import sqlite3
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ..services.lndg_db import LNDgDatabase
 from ..services.telegram import TelegramService
@@ -25,6 +26,18 @@ def _load_legacy(path: Path):
     return module
 
 
+SYMPTOM_KEYS = ("floor_lock", "no_down_low", "hold_small", "cb_trigger", "discovery")
+SYMPTOM_HEADER_RE = re.compile(r"(?:DRY[-\s]*RUN\s*)?[\u2699\uFE0F\u200D\uFE0F]*\s*AutoFee\s*\|\s*janela\s*\d+d", re.IGNORECASE)
+SYMPTOM_DICT_RE = re.compile(r"Symptoms:\s*\{([^}]*)\}", re.IGNORECASE)
+SYMPTOM_FALLBACK_PATTERNS = {
+    "floor_lock": re.compile(r"floor[_\s-]*lock\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+    "no_down_low": re.compile(r"no[_\s-]*down[_\s-]*low\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+    "hold_small": re.compile(r"hold[_\s-]*small\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+    "cb_trigger": re.compile(r"cb[_\s-]*trigger\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+    "discovery": re.compile(r"discovery\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+}
+
+
 class ParamTunerEngine:
     def __init__(
         self,
@@ -37,6 +50,7 @@ class ParamTunerEngine:
         self.legacy = _load_legacy(legacy_path)
         self._legacy_load_meta = self.legacy.load_meta  # type: ignore
         self._legacy_save_meta = self.legacy.save_meta  # type: ignore
+        self._legacy_read_symptoms = getattr(self.legacy, "read_symptoms_from_logs", None)
 
     def _load_json(self, name: str, default: Any = None) -> Any:
         if name == self.legacy.CACHE_PATH:
@@ -240,6 +254,75 @@ class ParamTunerEngine:
             "assisted_used_sat": int(round(assisted_used_sat)),
         }
 
+    @staticmethod
+    def _empty_symptom_counts() -> Dict[str, int]:
+        return {key: 0 for key in SYMPTOM_KEYS}
+
+    def _extract_symptoms_from_text(self, text: Optional[str]) -> Optional[Dict[str, int]]:
+        if not text:
+            return None
+        block = str(text)
+        hits = list(SYMPTOM_HEADER_RE.finditer(block))
+        if hits:
+            block = block[hits[-1].start():]
+        counts = self._empty_symptom_counts()
+        found = False
+        match = SYMPTOM_DICT_RE.search(block)
+        if match:
+            payload = "{" + match.group(1) + "}"
+            payload = payload.replace("'", '"')
+            try:
+                parsed = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                parsed = None
+            if isinstance(parsed, dict):
+                for key in SYMPTOM_KEYS:
+                    if key in parsed:
+                        value = parsed.get(key)
+                        if isinstance(value, (int, float)) and not isinstance(value, bool):
+                            counts[key] = int(value)
+                            found = True
+                        elif isinstance(value, str):
+                            value = value.strip()
+                            if value.isdigit():
+                                counts[key] = int(value)
+                                found = True
+        if not found:
+            for key, pattern in SYMPTOM_FALLBACK_PATTERNS.items():
+                matches = list(pattern.finditer(block))
+                if matches:
+                    counts[key] = int(matches[-1].group(1))
+                    found = True
+        return counts if found else None
+
+    def _read_symptoms_from_telemetry(self) -> Dict[str, int]:
+        try:
+            rows = list(self.storage.recent_logs("autofee", limit=20))
+        except Exception:
+            rows = []
+        for row in rows:
+            msg = None
+            try:
+                msg = row["msg"]
+            except Exception:
+                msg = None
+            parsed = self._extract_symptoms_from_text(msg)
+            if parsed:
+                return parsed
+        if callable(self._legacy_read_symptoms):
+            try:
+                legacy_counts = self._legacy_read_symptoms()  # type: ignore[call-arg]
+                if isinstance(legacy_counts, dict):
+                    normalized = self._empty_symptom_counts()
+                    for key in SYMPTOM_KEYS:
+                        value = legacy_counts.get(key)
+                        if isinstance(value, (int, float)) and not isinstance(value, bool):
+                            normalized[key] = int(value)
+                    return normalized
+            except Exception:
+                pass
+        return self._empty_symptom_counts()
+
     def run(self, *, dry_run: bool, force_telegram: bool, no_telegram: bool) -> str:
         legacy = self.legacy
         secrets = self.storage.get_secrets()
@@ -262,6 +345,7 @@ class ParamTunerEngine:
         legacy._save_ledger = self._save_ledger  # type: ignore
         legacy.get_7d_kpis = self._get_7d_kpis  # type: ignore
         legacy.get_assisted_kpis = self._get_assisted_kpis  # type: ignore
+        legacy.read_symptoms_from_logs = self._read_symptoms_from_telemetry  # type: ignore
 
         goals = self._load_goals()
         legacy.MONTHLY_PROFIT_GOAL_PPM = goals.get("ppm")  # type: ignore
