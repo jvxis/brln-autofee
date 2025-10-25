@@ -309,6 +309,26 @@ class ParamTunerEngine:
             parsed = self._extract_symptoms_from_text(msg)
             if parsed:
                 return parsed
+        try:
+            stored = self.storage.load_json("legacy_autofee_last_symptoms", None)
+        except Exception:
+            stored = None
+        if isinstance(stored, dict):
+            normalized = self._empty_symptom_counts()
+            has_any = False
+            for key in SYMPTOM_KEYS:
+                if key in stored:
+                    value = stored.get(key)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        normalized[key] = int(value)
+                        has_any = True
+                    elif isinstance(value, str):
+                        stripped = value.strip()
+                        if stripped.isdigit():
+                            normalized[key] = int(stripped)
+                            has_any = True
+            if has_any:
+                return normalized
         if callable(self._legacy_read_symptoms):
             try:
                 legacy_counts = self._legacy_read_symptoms()  # type: ignore[call-arg]

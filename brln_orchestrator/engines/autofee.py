@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import sqlite3
 import string
 import sys
@@ -28,6 +29,56 @@ def _load_legacy(path: Path):
     return module
 
 
+SYMPTOM_KEYS = ("floor_lock", "no_down_low", "hold_small", "cb_trigger", "discovery")
+SYMPTOM_HEADER_RE = re.compile(r"(?:DRY[-\s]*RUN\s*)?[\u2699\uFE0F\u200D\uFE0F]*\s*AutoFee\s*\|\s*janela\s*\d+d", re.IGNORECASE)
+SYMPTOM_DICT_RE = re.compile(r"Symptoms:\s*\{([^}]*)\}", re.IGNORECASE)
+SYMPTOM_FALLBACK_PATTERNS = {
+    "floor_lock": re.compile(r"floor[_\s-]*lock\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+    "no_down_low": re.compile(r"no[_\s-]*down[_\s-]*low\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+    "hold_small": re.compile(r"hold[_\s-]*small\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+    "cb_trigger": re.compile(r"cb[_\s-]*trigger\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+    "discovery": re.compile(r"discovery\s*[:=]\s*([0-9]+)", re.IGNORECASE),
+}
+
+
+def _extract_symptoms_from_text(text: Optional[str]) -> Optional[Dict[str, int]]:
+    if not text:
+        return None
+    block = str(text)
+    hits = list(SYMPTOM_HEADER_RE.finditer(block))
+    if hits:
+        block = block[hits[-1].start():]
+    counts = {key: 0 for key in SYMPTOM_KEYS}
+    found = False
+    match = SYMPTOM_DICT_RE.search(block)
+    if match:
+        payload = "{" + match.group(1) + "}"
+        payload = payload.replace("'", '"')
+        try:
+            parsed = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            for key in SYMPTOM_KEYS:
+                if key in parsed:
+                    value = parsed.get(key)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        counts[key] = int(value)
+                        found = True
+                    elif isinstance(value, str):
+                        value = value.strip()
+                        if value.isdigit():
+                            counts[key] = int(value)
+                            found = True
+    if not found:
+        for key, pattern in SYMPTOM_FALLBACK_PATTERNS.items():
+            matches = list(pattern.finditer(block))
+            if matches:
+                counts[key] = int(matches[-1].group(1))
+                found = True
+    return counts if found else None
+
+
 class AutoFeeEngine:
     def __init__(
         self,
@@ -48,6 +99,15 @@ class AutoFeeEngine:
     # ------------------------------------------------------------------ #
     # Helpers injected into legacy module
     # ------------------------------------------------------------------ #
+
+    def _store_last_symptoms(self, text: str) -> None:
+        counts = _extract_symptoms_from_text(text)
+        if counts is None:
+            return
+        try:
+            self.storage.save_json("legacy_autofee_last_symptoms", counts)
+        except Exception:
+            pass
 
     def _load_json(self, name: str, default: Any) -> Any:
         if name == self.legacy.CACHE_PATH:
@@ -285,7 +345,11 @@ class AutoFeeEngine:
             segments.append("\n".join(prelude))
         if legacy_output:
             segments.append(legacy_output)
-        return "\n\n".join(segments)
+        combined_output = "\n\n".join(segments)
+        text_for_symptoms = combined_output or legacy_output
+        if text_for_symptoms:
+            self._store_last_symptoms(text_for_symptoms)
+        return combined_output
 
     def _apply_mode_presets(self, mode: str, legacy) -> None:
         presets = get_mode_presets(mode)
