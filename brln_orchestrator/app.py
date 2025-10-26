@@ -18,8 +18,8 @@ from .services.lncli import LncliService
 from .services.telegram import TelegramService
 from .storage import Storage
 
-APP_VERSION = "0.4.4"
-APP_VERSION_DESC = "AutoFee Integrado - Melhoria Autofee - Turbo Extreme Drain e Info Floor"
+APP_VERSION = "0.4.5"
+APP_VERSION_DESC = "AutoFee Integrado - Melhoria Autofee e Rebal Trigger - Suavização para Sinks Cheios e Fallback inteligente de custo de Rebal"
 DEFAULT_DB_PATH = Path("brln_orchestrator.sqlite3")
 DEFAULT_SETTINGS = {
     "mode": "conservador",

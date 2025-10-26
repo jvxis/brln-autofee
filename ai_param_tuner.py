@@ -41,7 +41,7 @@ GOAL_SURPLUS_TOL = 0.10
 # =========================
 # Heurística pró-lucro (camadas)
 # =========================
-SAT_PROFIT_MIN       = 50_000   # lucro em sats/7d considerado “ok”
+SAT_PROFIT_MIN       = 10_000   # lucro em sats/7d considerado “ok”
 PPM_WORSE            = -250     # profit_ppm “muito ruim” (ajustado)
 PPM_MEH              = -150     # levemente ruim (ajustado)
 REQUIRED_GOOD_STREAK = 2        # janelas positivas consecutivas p/ “afrouxar”
@@ -77,8 +77,8 @@ DEFAULTS = {
     "OUTRATE_FLOOR_FACTOR": 1.10,
     "BOS_PUSH_MIN_ABS_PPM": 15,
     "BOS_PUSH_MIN_REL_FRAC": 0.04,
-    "COOLDOWN_HOURS_DOWN": 5,
-    "COOLDOWN_HOURS_UP": 3,
+    "COOLDOWN_HOURS_DOWN": 2,
+    "COOLDOWN_HOURS_UP": 1,
     "REBAL_BLEND_LAMBDA": 0.30,
     "NEG_MARGIN_SURGE_BUMP": 0.05,
 }
@@ -86,7 +86,7 @@ DEFAULTS = {
 # =========================
 # Anti-ratchet (higiene)
 # =========================
-MIN_HOURS_BETWEEN_CHANGES = 4
+MIN_HOURS_BETWEEN_CHANGES = 3
 REQUIRED_BAD_STREAK = 2
 
 # Orçamento diário de variação ABSOLUTA por chave
