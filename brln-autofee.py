@@ -46,7 +46,7 @@ COLCHAO_PPM = 25
 # --- política de variação por liquidez (faixa morta: 5%–30%) ---
 LOW_OUTBOUND_THRESH = 0.05   # <5% outbound = drenado ⇒ leve alta
 HIGH_OUTBOUND_THRESH = 0.20  # >20% outbound = sobrando ⇒ leve queda
-LOW_OUTBOUND_BUMP   = 0.01   # +1% no alvo quando <5%
+LOW_OUTBOUND_BUMP   = 0.02   # +2% no alvo quando <5%
 HIGH_OUTBOUND_CUT   = 0.02   # -2% no alvo quando >20%
 IDLE_EXTRA_CUT      = 0.015  # corte quase nulo por ociosidade
 
@@ -54,11 +54,11 @@ IDLE_EXTRA_CUT      = 0.015  # corte quase nulo por ociosidade
 PERSISTENT_LOW_ENABLE        = True
 PERSISTENT_LOW_THRESH        = 0.10   # considera "baixo" se < 10%
 PERSISTENT_LOW_BUMP          = 0.05   # +5% no alvo por rodada de streak
-PERSISTENT_LOW_STREAK_MIN    = 2      # só começa a agir a partir de 2 rodadas seguidas
-PERSISTENT_LOW_MAX           = 0.20   # teto de +20% acumulado
+PERSISTENT_LOW_STREAK_MIN    = 1      # só começa a agir a partir de 1 rodada seguidas
+PERSISTENT_LOW_MAX           = 0.25   # teto de +25% acumulado
 # >>> NOVAS FLAGS:
 PERSISTENT_LOW_OVER_CURRENT_ENABLE = True  # se alvo <= taxa atual, escalar "over current"
-PERSISTENT_LOW_MIN_STEP_PPM        = 5     # passo mínimo quando escalando "over current"
+PERSISTENT_LOW_MIN_STEP_PPM        = 10     # passo mínimo quando escalando "over current"
 
 # --- peso do volume de ENTRADA do peer (Amboss) no alvo ---
 VOLUME_WEIGHT_ALPHA = 0.20  # MOD: 0.10 → 0.20 (ponderação de entrada mais forte)
@@ -71,7 +71,7 @@ CB_GRACE_DAYS  = 7      # janela de observação menor
 
 # --- Proteção de custo de rebal (PISO) ---
 REBAL_FLOOR_ENABLE = True      # habilita piso de segurança
-REBAL_FLOOR_MARGIN = 0.05      # 15% acima do custo médio de rebal 7d
+REBAL_FLOOR_MARGIN = 0.10      # 10% acima do custo médio de rebal 7d
 
 # --- Composição do custo no ALVO ---
 #   "global"      = usa só o custo global 7d
@@ -94,8 +94,8 @@ OUTRATE_FLOOR_MIN_FWDS    = 4
 # >>> PATCH: OUTRATE PEG (grudar no preço observado) e ajustes de floor
 OUTRATE_PEG_ENABLE         = True     # ativa proteção para não cair abaixo do preço que já vendeu
 OUTRATE_PEG_MIN_FWDS       = 4        # bastou 4 forward na janela para reconhecer 'preço observado'
-OUTRATE_PEG_HEADROOM       = 0.02     # folga de +1% acima do outrate observado
-OUTRATE_PEG_GRACE_HOURS    = 6       # só autoriza cair abaixo do outrate após 24h desde a última mudança
+OUTRATE_PEG_HEADROOM       = 0.05     # folga de +1% acima do outrate observado
+OUTRATE_PEG_GRACE_HOURS    = 16       # só autoriza cair abaixo do outrate após 24h desde a última mudança
 OUTRATE_PEG_SEED_MULT      = 1.10     # se outrate >= 1.05x seed, trata como demanda real (fura teto seed*1.8)
 
 # =========================
@@ -110,7 +110,7 @@ STEP_CAP_IDLE_DOWN = 0.12 # fwd_count==0 & out_ratio>0.60 (queda)
 STEP_MIN_STEP_PPM = 5     # passo mínimo em ppm
 
 # Floor por canal mais robusto
-REBAL_PERCHAN_MIN_VALUE_SAT = 100_000  # 200k -> 400k: precisa sinal real para usar custo por canal
+REBAL_PERCHAN_MIN_VALUE_SAT = 200_000  # 200k -> 400k: precisa sinal real para usar custo por canal
 REBAL_FLOOR_SEED_CAP_FACTOR = 1.20     # teto do floor relativo ao seed
 
 # Outrate floor dinâmico
@@ -145,7 +145,7 @@ TOP_REVENUE_SURGE_BUMP = 0.12
 # MOD: Extreme drain mode (acelera SUBIDAS quando drenado crônico com demanda)
 EXTREME_DRAIN_ENABLE       = True
 EXTREME_DRAIN_STREAK       = 16     # ativa se low_streak ≥ 16
-EXTREME_DRAIN_OUT_MAX      = 0.03   # e out_ratio < 3%
+EXTREME_DRAIN_OUT_MAX      = 0.04   # e out_ratio < 4%
 EXTREME_DRAIN_STEP_CAP     = 0.15   # step cap p/ SUBIR
 EXTREME_DRAIN_MIN_STEP_PPM = 15     # passo mínimo p/ SUBIR
 
@@ -180,8 +180,8 @@ SURGE_RESPECT_STEPCAP = True
 
 # ========== HISTERÉSE (COOLDOWN) ==========
 APPLY_COOLDOWN_ENABLE = True
-COOLDOWN_HOURS_UP   = 1
-COOLDOWN_HOURS_DOWN = 2
+COOLDOWN_HOURS_UP   = 2
+COOLDOWN_HOURS_DOWN = 3
 COOLDOWN_FWDS_MIN   = 2
 COOLDOWN_PROFIT_DOWN_ENABLE = True
 COOLDOWN_PROFIT_MARGIN_MIN  = 10
@@ -247,6 +247,10 @@ SOFTEN_MAX_DROP_TO_PEG_FRAC     = 0.95   # pode cair até ~98% do out_ppm7d (ain
 # >>> NOVO: comportamento especial para SINK
 SINK_SKIP_SEED_CAP               = True   # não aplicar cap pelo seed em SINK
 SINK_KEEP_FLOOR_AT_REBAL_COST    = True   # garantir que o floor final não fique abaixo do piso de rebal por canal (c/ margem)
+# Soft-ceiling adicional por SINK quente (evita travar em 3000 à toa)
+SINK_SOFT_CEIL_ENABLE = True
+SINK_SOFT_CEIL_P95_MULT = 1.10  # teto suave = min(seed*1.8, p95*1.1, MAX_PPM)
+
 
 # === DIAGNÓSTICO DE MODOS ASSISTIDOS (log-only) ===
 ASSISTED_DIAG_ENABLE = True      # pode sobrescrever via env DID_ASSISTED=0/1
@@ -279,6 +283,13 @@ REBAL_COST_GLOBAL_CLAMP_HIGH = 1.40   # nem > 140% do out_ppm7d
 REBAL_COST_BLEND_ALPHA       = 0.70   # quanto do "global_bounded" entra no blend (resto é outrate)
 APPLY_BOUNDED_COST_CLASSES = {"source", "router"}
 
+# ======== CONFIG NOVA SINK LUCRATIVO DRENADO (Subir mais rapido ao Alvo)========
+MIN_SOFT_CEILING = 100          # piso global de teto "suave" (antes era 800 fixo)
+SEED_CEILING_MULT = 1.5          # já existia como 1.5 no seu cálculo
+SEED_FLOOR_MULT   = 1.10         # garante coerência mínima com o seed
+P65_BOOST         = 1.15         # se tiver p65, dá um leve boost
+SINK_MIN_MARGIN = 200          # margem mínima em ppm para ativar o turbo sink lucrativo 
+
 # Etiquetas
 TAG_SINK     = "🏷️sink"
 TAG_SOURCE   = "🏷️source"
@@ -292,69 +303,11 @@ DRYRUN_SAVE_CLASS = True
 DIDACTIC_EXPLAIN_ENABLE = False     # padrão desligado; liga por CLI/env
 DIDACTIC_LEVEL = "basic"            # "basic" (1 linha) ou "detailed" (passo a passo)
 
-
+# DEPRECATED - USA BANCO DE DADOS
 EXCLUSION_LIST = {
-    '024700001dd2f801c6489983b528ae4895e0815b34b60729affd68c4e681ab9f4d', #BITSCOINERS|BR⚡️LN
-    '0255457f1231750f726caf0ef32cfdfd1066df0012676e28f72cacc9ea96d67646', #Kriptoeleutheria
-    '026b33a83311adebb7915427734e483787ef57d856f5c792ea6f866cfea7e58908', #Volarte
-    #'021c97a90a411ff2b10dc2a8e32de2f29d2fa49d41bfbb52bd416e460db0747d0d', #Loop
-    '03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f', #ACINQ
-    #'02e4971e61a3f55718ae31e2eed19aaf2e32caf3eb5ef5ff03e01aa3ada8907e78', #1sats.com⚡️lsp.flashsats.xyz
-    #'0322824989daf1f31dae04fee4034be4069f3dabf7059cf7c637257bc9735da80b', #PurpleWisteria
-    '039cdd937f8d83fb2f78c8d7ddc92ae28c9dbb5c4827181cfc80df60dee1b7bf19', #Kazumyon
-    '035e4ff418fc8b5554c5d9eea66396c227bd429a3251c8cbc711002ba215bfc226', #WalletOfSatoshi.com
-    '03271338633d2d37b285dae4df40b413d8c6c791fbee7797bc5dc70812196d7d5c', #lnmarkets.com
-    #'02d96eadea3d780104449aca5c93461ce67c1564e2e1d73225fa67dd3b997a6018', #Boltz CLN
-    #'026165850492521f4ac8abd9bd8088123446d126f648ca35e60f88177dc149ceb2', #Boltz
-    '033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025', #bfx-lnd0
-    #'03cde60a6323f7122d5178255766e38114b4722ede08f7c9e0c5df9b912cc201d6', #bfx-lnd1
-    #'0294ac3e099def03c12a37e30fe5364b1223fd60069869142ef96580c8439c2e0a', #okx
-    '02f1a8c87607f415c8f22c00593002775941dea48869ce23096af27b0cfdcc0b69', #Kraken 🐙⚡
-    '0324ba2392e25bff76abd0b1f7e4b53b5f82aa53fddc3419b051b6c801db9e2247', #kappa
-    '02c91d6aa51aa940608b497b6beebcb1aec05be3c47704b682b3889424679ca490', #LNBiG [Hub-3]
-    '033e9ce4e8f0e68f7db49ffb6b9eecc10605f3f3fcb3c630545887749ab515b9c7', #LNBiG [Hub-2]
-    #'03da1c27ca77872ac5b3e568af30673e599a47a5e4497f85c7b5da42048807b3ed', #LNBIG [Edge-3]
-    #'026af41af0e3861ba170cc0eef8f45a1015125dac57c28df53752caaeea793b28f', #BitcoinVN 22
-    #'03797da684da0b6de8a813f9d7ebb0412c5d7504619b3fa5255861b991a7f86960', #BitcoinJungleCR
-    #'027100442c3b79f606f80f322d98d499eefcb060599efc5d4ecb00209c2cb54190', #block
-    #'03477b0f9679de60b3a803b47294e37b4c14a383564afded973114134623d2ec82', #BR⚡LN HUB
-    #'021294fff596e497ad2902cd5f19673e9020953d90625d68c22e91b51a45c032d3', #ln.coinos.io
-    '03c72f89b660de43fc5c77ef879cbf7846601af88befb80e436242909b14fd0495', #RecklessApotheosis
-    '032ae3168ba52314da581d6b6693c562b437a9cf805933d4d69e7801547e07302e', #LQwD-France
-    '03e4f3d7ccf98bdbf24085b948f204a6c0c0b4464a7572cbac85c746085b14bbc9', #LQwD-Australia
-    '031a01e29587952eda0ed5d10c4e79bf0fc88d61aeae89e8a7ea7c036badb8c793', #LQwD-Japan
-    '0364913d18a19c671bb36dd04d6ad5be0fe8f2894314c36a9db3f03c2d414907e1', #LQwD-Canada
-    '036afe432cad4fd5a5671d9d95d3d3671e315825efdc10f734dba1f47a711a276b', #LQwD-US-West-2
-    '02be8a325c61af50aebc2004e3a3db0dc8d255f2fb95036738392172f739fa1c3a', #LQWD-England
-    '023631624e30ef7bcb2887e600da8e59608a093718bc40d35b7a57145a0f3db9af', #speedupln.com
-    '03c157946cc1cd376b929e36006e645fae490b1b1d4156b40db804e01b4bda48cd', #The Continental
-    '03a93b87bf9f052b8e862d51ebbac4ce5e97b5f4137563cd5128548d7f5978dda9', #cyberdyne.sh
-    '02abfbe63425b1ba4f245af72a0a85ba16cd13365704655b2abfc13e53ad338e02', #Azteco
-    '035adfeca8fc95de5e2e9dbf9be39ac577b510e7dad0ad9287117d01f282eb667a', #TennisNbtc
-    '02bc400b9df471549c1a2071a61be27460e9726d3399370671514dd8356606bd81', #Aldebaran
-    '0394a8cf19969a6aa5677f5b62b37104187b967322415351286c928fd66ceb0d97', #AZ Capital
-    '036b7ad803b5ba34a3eb39ef501ce1aeb700084c4cf11ba64ca57654eddcb4ecda', #⚡​AquiTemBitcoin⚡​
-    #'03080b61a2dab8ef6bd9a227377b59b43f22662430236c0c620f405dc8d422e2db', #Matt Hatter
-    '0309f02bbfcbad0dd50a14a7ba7a4050bae9f404f5a2c7306634453e852fcebda0', #PagSats | BR⚡️LN
-    '03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f', #ACINQ
-    '020ca6f9aaebc3c8aab77f3532112649c28a0bfb1539d0c2a42f795fb6e4c363b2', #carlslight
-    '03a92a92e64eca60c122e87e90c6373e6ce23b171ab6f8f5f24c1512b668629a1a', #WildSats ⚡
-    '03c8e5f583585cac1de2b7503a6ccd3c12ba477cfd139cd4905be504c2f48e86bd', #Strike
-    '0323a74fbd280d757cdd8c04513d302077089f3205db62963d0dea468c6424d231', #LudwigTheAustrian
-    '022c402216eee911831d0d21e8ff5d9f2ac664b7c24cb674cf9e90b00f99a3d7c3', #ln.solid
-    '026606c031210ff5a38e193bfc3148ce8147f18f93637ffcb967d829ab361e4852', #WWALKER  | BR⚡LN
-    '0362259ea579f84772508de22086fa746f6e2571f8efb4bd5ec0876bcd18b5747c', #Sunshine Canyon
-    '028268dcb4c68311613dd3bbb0164f7685b6710022bfa6dcce639acd44695049a2', #⚡blitz⚡
-    '038607b58550d272ce8a058b77bc7a00e099687531359074bb600477f6bb7d1764', #Tiger 🐯 | BR⚡️LN
-    #'02dfe525d9c5b4bb52a55aa3d67115fa4a6326599c686dbd1083cffe0f45c114f8', #02dfe525d9c5b4bb52a5
-    '0382b31dcff337311bf919411c5073c9c9a129890993f94f4a16eaaeffd91c7788', #sparkseer.space / lnnodeinsight
-    '03eb9f088f62bb414b74b11e287624d5f05fd92b582658b47b4ed6048e0dd01404', #Fi4free
-    #'0226b07c45a5d7dd0291ce0cf26764ca942473a9b7a62c0e83fd3350126238d673', #Alfred-pay
-    #'03aae60ebc0d009ef1bd3bcd5c66611d66cd235bff9ee7d2ce7ffec89fb369e981', #info.pagcoin.org|BR⚡️LN
-    #'0226c3a56e4c8c67ed28ba0ea7a26cb1c044a14dabd3db78849560c7e74904ea5b', #d0d0LNDnode
-    #'03fe47fdfea0f25fad0013498e8d6cec348ae3d673841ec25ee94f87c21af16ed8', #fortuna-custody-stroom
-    #'023668d1fd35d0736b24a80ced02410e9a61365de695664017aa9417c500ddfb19', #hqq
-    '02b2ae15001601b74eee8ddbd036315c5fbd415b24f88f24d5266820169dfd13de' #lndwr3.zaphq.io
+    #'024700001dd2f801c6489983b528ae4895e0815b34b60729affd68c4e681ab9f4d', #BITSCOINERS|BR⚡️LN
+    #'0255457f1231750f726caf0ef32cfdfd1066df0012676e28f72cacc9ea96d67646', #Kriptoeleutheria
+    #'02b2ae15001601b74eee8ddbd036315c5fbd415b24f88f24d5266820169dfd13de' #lndwr3.zaphq.io
 }
 
 # === OVERRIDES DINÂMICOS (IA) ===
@@ -536,6 +489,11 @@ def assisted_diag_candidates(cid, *, out_ratio:float, out_ppm7d:float, margin_pp
                  + (f" & fwds≥{globals().get('NRA_REQ_FWDS',1)}" if globals().get("NRA_REQ_FWDS",1) else "")
     return fa_candidate, nra_candidate, fa_reason, nra_reason
 
+def _apply_sink_soft_ceiling(target_ppm: int, seed_ppm: int, p95_ppm: int) -> int:
+    if not SINK_SOFT_CEIL_ENABLE:
+        return target_ppm
+    soft_ceil = min(int(seed_ppm * SEED_CEILING_MULT), int(p95_ppm * SINK_SOFT_CEIL_P95_MULT), MAX_PPM)
+    return min(target_ppm, soft_ceil)
 
 # === utilitário p/ piso conforme REBAL_COST_MODE ===
 def pick_rebal_cost_for_floor(cid, perchan_cost_map, global_cost):
@@ -1754,8 +1712,29 @@ def main(dry_run=False):
             if discovery_hard and local_ppm > target:
                 cap_frac = max(cap_frac, DISCOVERY_HARDDROP_CAP_FRAC)
                 
-        # >>> PATCH: lock só com base concreta local (sem usar global)
-        can_lock_globally = floor_src in ("rebal7d","rebal21d","outrate7d","outrate21d")
+        # >>> FIX: lock só com base concreta local (sem depender de floor_src ainda não decidido)
+        st_m = state.get(cid, {}) or {}
+        ttl = 21 * 24 * 3600
+        now_ts = int(time.time())
+
+        has_recent_rebal = (
+            (cid in rebal_cost_ppm_by_chan_use and (rebal_cost_ppm_by_chan_use.get(cid) or 0) > 0)
+            or (
+                (st_m.get("last_rebal_cost_ppm") or 0) > 0
+                and (now_ts - int(st_m.get("last_rebal_cost_ts") or 0) <= ttl)
+            )
+        )
+
+        has_recent_outrate = (
+            ((out_ppm_7d or 0) > 0 and fwd_count >= OUTRATE_PEG_MIN_FWDS)
+            or (
+                (st_m.get("last_outrate_ppm") or 0) > 0
+                and (now_ts - int(st_m.get("last_outrate_ts") or 0) <= ttl)
+            )
+        )
+
+        can_lock_globally = bool(has_recent_rebal or has_recent_outrate)
+
 
 
         # NEW INBOUND: step cap maior só para reduzir
@@ -2021,19 +2000,44 @@ def main(dry_run=False):
             pref = clamp_ppm(int(seed_used * SOURCE_SEED_TARGET_FRAC))
             final_ppm = min(final_ppm, pref)
 
-        # Clamp final com teto local por canal (barreira suave)
-        # >>> PATCH: TETO condicional — preserva demanda observada
-        local_max = min(MAX_PPM, max(800, int(seed_used * 1.8)))
-
-        # exceções: se há demanda, não estrangular pelo teto ancorado no seed
-        demand_exception = (
-            (OUTRATE_PEG_ENABLE and fwd_count >= OUTRATE_PEG_MIN_FWDS and out_ppm_7d >= seed_used * OUTRATE_PEG_SEED_MULT)
-            or (out_ratio < PERSISTENT_LOW_THRESH)   # drenado: não forçar queda por teto
+        # 1) Âncoras dinâmicas
+        base_ceiling = int(seed_used * SEED_CEILING_MULT)
+        seed_floor   = int(seed_used * SEED_FLOOR_MULT)
+        p95_floor    = int((seed_p95 or seed_used) * P65_BOOST)
+        
+        # 2) Teto base: NÃO usa final_ppm como âncora, só referências "de mercado"
+        local_max = min(
+            MAX_PPM,
+            max(MIN_SOFT_CEILING, base_ceiling, seed_floor, p95_floor)
         )
 
-        if demand_exception and out_ppm_7d > 0:
-            # autoriza teto pelo outrate (com folga do PEG)
-            local_max = max(local_max, clamp_ppm(int(round(out_ppm_7d * (1.0 + OUTRATE_PEG_HEADROOM)))))
+        # 3) Turbo para SINK super drenado e com margem ≥ 0  (mantém igual)
+        if class_label == "sink" and out_ratio < PERSISTENT_LOW_THRESH and margin_ppm_7d >= SINK_MIN_MARGIN:
+            local_max = MAX_PPM
+        else:
+            # Exceções de demanda: se há demanda real, não estrangular pelo teto
+            demand_exception = (
+                (OUTRATE_PEG_ENABLE and fwd_count >= OUTRATE_PEG_MIN_FWDS and out_ppm_7d >= seed_used * OUTRATE_PEG_SEED_MULT)
+                or (out_ratio < PERSISTENT_LOW_THRESH)  # drenado: não forçar queda por teto
+            )
+            if demand_exception:
+                # Libera mais espaço: respeita demanda observada
+                local_max = min(
+                    MAX_PPM,
+                    max(local_max, int(seed_used * OUTRATE_PEG_SEED_MULT), int(out_ppm_7d or 0))
+                )
+
+        # 3b) Teto especial para SOURCE: não faz sentido virar MAX_PPM se é "source"
+        if class_label == "source":
+            # cap básico: perto do seed (ex.: 1.1x seed)
+            src_cap = int(seed_used * 1.10)
+            # se já temos out_ppm observado, não subir muito acima disso
+            if (out_ppm_7d or 0) > 0:
+                src_cap = min(src_cap, int(out_ppm_7d * 1.10))
+
+            # garante que o teto do source seja bem abaixo de MAX_PPM
+            local_max = min(local_max, clamp_ppm(src_cap))
+
 
         # ⛏️ FIX: primeiro clamp no teto, depois REAPLICA o step-cap para não “degolar” em 1 rodada
         final_ppm_preclamp = int(round(final_ppm))

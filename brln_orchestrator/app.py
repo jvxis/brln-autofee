@@ -18,8 +18,8 @@ from .services.lncli import LncliService
 from .services.telegram import TelegramService
 from .storage import Storage
 
-APP_VERSION = "0.4.7"
-APP_VERSION_DESC = "AutoFee Integrado - Melhoria Autofee - Pre versao com o DID_ASSISTED e novo Modo EXPLORER"
+APP_VERSION = "0.4.8"
+APP_VERSION_DESC = "AutoFee Integrado - Melhoria Autofee e Trigger - Subida Rápida Sink Lucrativo e Correção de Bugs"
 DEFAULT_DB_PATH = Path("brln_orchestrator.sqlite3")
 DEFAULT_SETTINGS = {
     "mode": "conservador",
