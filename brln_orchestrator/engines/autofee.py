@@ -167,8 +167,11 @@ class AutoFeeEngine:
                 by_point[point] = info
         return {"by_scid_dec": by_scid_dec, "by_cid_dec": by_cid_dec, "by_point": by_point}
 
+    def _bos_set_fees(self, pubkey: str, ppm: int, inbound_discount_ppm: Optional[int], dry_run: bool) -> None:
+        self.bos.set_fee(pubkey, ppm, inbound_discount_ppm=inbound_discount_ppm, dry_run=dry_run)
+
     def _bos_set_fee(self, pubkey: str, ppm: int, dry_run: bool) -> None:
-        self.bos.set_fee(pubkey, ppm, dry_run=dry_run)
+        self._bos_set_fees(pubkey, ppm, None, dry_run)
 
     def _tg_send(self, text: str) -> None:
         if not text:
@@ -250,7 +253,8 @@ class AutoFeeEngine:
         legacy.save_json = self._save_json  # type: ignore
         legacy.db_connect = self._db_connect  # type: ignore
         legacy.listchannels_snapshot = self._listchannels_snapshot  # type: ignore
-        legacy.bos_set_fee_ppm = lambda pubkey, ppm_value: self._bos_set_fee(pubkey, ppm_value, dry_run)  # type: ignore
+        legacy.bos_set_fees = lambda pubkey, ppm_value, inbound_discount_ppm=None: self._bos_set_fees(pubkey, ppm_value, inbound_discount_ppm, dry_run)  # type: ignore
+        legacy.bos_set_fee_ppm = lambda pubkey, ppm_value: self._bos_set_fees(pubkey, ppm_value, None, dry_run)  # type: ignore
         legacy.tg_send_big = self._tg_send  # type: ignore
         legacy.read_version_info = self._read_version_info  # type: ignore
         legacy.run = self._run_command  # type: ignore

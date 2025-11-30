@@ -9,9 +9,23 @@ class BosService:
     def __init__(self, path: str = "bos") -> None:
         self._raw_path = path.strip()
 
-    def set_fee(self, pubkey: str, ppm: int, *, dry_run: bool = False) -> Optional[str]:
+    def set_fee(
+        self,
+        pubkey: str,
+        ppm: int,
+        *,
+        inbound_discount_ppm: Optional[int] = None,
+        dry_run: bool = False,
+    ) -> Optional[str]:
         args = shlex.split(self._raw_path) or ["bos"]
-        args.extend(["fees", "--to", pubkey, "--set-fee-rate", str(int(ppm))])
+        args.extend(["fees", "--to", pubkey, "--set-fee-rate", str(max(0, int(ppm)))])
+        if inbound_discount_ppm is not None:
+            args.extend(
+                [
+                    "--set-inbound-rate-discount",
+                    str(max(0, int(inbound_discount_ppm))),
+                ]
+            )
         if dry_run:
             return f"[dry-run] {' '.join(args)}"
         try:
@@ -19,4 +33,3 @@ class BosService:
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(f"bos failed ({exc.returncode}): {exc.stderr.strip()}") from exc
         return proc.stdout.strip() or None
-
