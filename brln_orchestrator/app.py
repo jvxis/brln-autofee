@@ -25,8 +25,8 @@ from logging_config import setup_logging, get_logger
 setup_logging()
 logger = get_logger("app")
 
-APP_VERSION = "0.4.10"
-APP_VERSION_DESC = "AutoFee Integrado - Melhoria Autofee - Novo Módulo de Inbound Fees (Desconto) + Alteração de Fees via LND api by Morata"
+APP_VERSION = "0.4.11"
+APP_VERSION_DESC = "AutoFee Integrado - Melhoria Autofee - Pacote de Melhorias UX, Logs e Estabilidade by Morata"
 DEFAULT_DB_PATH = Path("brln_orchestrator.sqlite3")
 DEFAULT_SETTINGS = {
     "mode": "conservador",
