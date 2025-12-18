@@ -43,6 +43,10 @@ class Storage:
                     lndg_db_path    TEXT,
                     bos_path        TEXT,
                     lncli_path      TEXT,
+                    lnd_rest_host   TEXT,
+                    lnd_macaroon_path TEXT,
+                    lnd_tls_cert_path TEXT,
+                    use_lnd_rest    INTEGER DEFAULT 0,
                     created_at      INTEGER,
                     updated_at      INTEGER
                 );
@@ -114,8 +118,25 @@ class Storage:
             )
 
             self._conn.commit()
+
+            self._migrate_lnd_rest_columns()
+
             self._conn.commit()
 
+    def _migrate_lnd_rest_columns(self) -> None:
+        cursor = self._conn.execute("PRAGMA table_info(secrets)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+
+        new_cols = [
+            ("lnd_rest_host", "TEXT"),
+            ("lnd_macaroon_path", "TEXT"),
+            ("lnd_tls_cert_path", "TEXT"),
+            ("use_lnd_rest", "INTEGER DEFAULT 0"),
+        ]
+
+        for col_name, col_type in new_cols:
+            if col_name not in existing_cols:
+                self._conn.execute(f"ALTER TABLE secrets ADD COLUMN {col_name} {col_type}")
 
     # --- Meta operations -------------------------------------------------
 

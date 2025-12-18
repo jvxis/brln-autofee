@@ -13,6 +13,7 @@ from .engines.ar import ARTriggerEngine
 from .engines.tuner import ParamTunerEngine
 from .services.amboss import AmbossService
 from .services.bos import BosService
+from .services.lnd_rest import LndRestService
 from .services.lndg_api import LNDgAPI
 from .services.lncli import LncliService
 from .services.telegram import TelegramService
@@ -87,6 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
     secret_cmd.add_argument("--lndg-db-path")
     secret_cmd.add_argument("--bos-path")
     secret_cmd.add_argument("--lncli-path")
+    secret_cmd.add_argument("--lnd-rest-host", help="default = localhost:8080)")
+    secret_cmd.add_argument("--lnd-macaroon-path", help="default = ~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon")
+    secret_cmd.add_argument("--lnd-tls-cert-path", help="default = ~/.lnd/tls.cert")
+    secret_cmd.add_argument("--use-lnd-rest", type=int, choices=[0, 1], help="1=usar REST API, 0=usar BOS")
 
     excl_cmd = sub.add_parser("exclusions", help="Gerencia exclusoes")
     excl_sub = excl_cmd.add_subparsers(dest="action", required=True)
@@ -149,20 +154,25 @@ def handle_init_db(args: argparse.Namespace) -> None:
 
 def handle_set_secret(storage: Storage, args: argparse.Namespace) -> None:
     payload = {}
-    for key in (
-        "amboss_token",
-        "telegram_token",
-        "telegram_chat",
-        "lndg_url",
-        "lndg_user",
-        "lndg_pass",
-        "lndg_db_path",
-        "bos_path",
-        "lncli_path",
-    ):
-        value = getattr(args, key)
+    arg_to_col = {
+        "amboss_token": "amboss_token",
+        "telegram_token": "telegram_token",
+        "telegram_chat": "telegram_chat",
+        "lndg_url": "lndg_url",
+        "lndg_user": "lndg_user",
+        "lndg_pass": "lndg_pass",
+        "lndg_db_path": "lndg_db_path",
+        "bos_path": "bos_path",
+        "lncli_path": "lncli_path",
+        "lnd_rest_host": "lnd_rest_host",
+        "lnd_macaroon_path": "lnd_macaroon_path",
+        "lnd_tls_cert_path": "lnd_tls_cert_path",
+        "use_lnd_rest": "use_lnd_rest",
+    }
+    for arg_name, col_name in arg_to_col.items():
+        value = getattr(args, arg_name, None)
         if value is not None:
-            payload[key] = value
+            payload[col_name] = value
     if not payload:
         print("Nada para atualizar.")
         return
@@ -254,7 +264,17 @@ def handle_show_config(storage: Storage) -> None:
             print(f"  {key}: ***")
         else:
             print(f"  {key}: {value}")
-    print("\nconfiguracao:")
+
+    use_rest = secrets.get("use_lnd_rest")
+    print(f"\nLND REST API (use_lnd_rest={use_rest or 0}):")
+    for key in ("lnd_rest_host", "lnd_macaroon_path", "lnd_tls_cert_path"):
+        value = secrets.get(key)
+        if not value:
+            print(f"  {key}: <não configurado>")
+        else:
+            print(f"  {key}: {value}")
+
+    print("\nConfiguracao:")
     for key, value in settings.items():
         print(f"  {key}: {value}")
 
@@ -262,7 +282,26 @@ def handle_show_config(storage: Storage) -> None:
 def build_services(storage: Storage) -> Dict[str, Any]:
     secrets = storage.get_secrets()
     lncli = LncliService(secrets.get("lncli_path") or "lncli")
-    bos = BosService(secrets.get("bos_path") or "bos")
+
+    use_lnd_rest = bool(secrets.get("use_lnd_rest"))
+    fee_service = None
+    lnd_rest = None
+
+    if use_lnd_rest:
+        try:
+            lnd_rest = LndRestService(
+                rest_host=secrets.get("lnd_rest_host") or "localhost:8080",
+                macaroon_path=secrets.get("lnd_macaroon_path"),
+                tls_cert_path=secrets.get("lnd_tls_cert_path"),
+            )
+            fee_service = lnd_rest
+            print("🔌 Usando LND REST API (sessão persistente)")
+        except Exception as exc:
+            print(f"⚠️ Erro ao inicializar LND REST: {exc}. Fallback para BOS.")
+            fee_service = BosService(secrets.get("bos_path") or "bos")
+    else:
+        fee_service = BosService(secrets.get("bos_path") or "bos")
+
     telegram = TelegramService(secrets.get("telegram_token"), secrets.get("telegram_chat"))
     lndg_url = secrets.get("lndg_url")
     lndg_api = None
@@ -272,7 +311,8 @@ def build_services(storage: Storage) -> Dict[str, Any]:
     amboss = AmbossService(storage, amboss_token) if amboss_token else None
     return {
         "lncli": lncli,
-        "bos": bos,
+        "bos": fee_service,
+        "lnd_rest": lnd_rest,
         "telegram": telegram,
         "lndg_api": lndg_api,
         "amboss": amboss,
@@ -315,7 +355,7 @@ def run_module(func, label: str, *, storage: Storage) -> None:
         if output:
             print(output.strip())
             storage.log(label, "INFO", output.strip(), None)
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:
         tb = traceback.format_exc().strip()
         storage.log(label, "ERROR", str(exc), {"traceback": tb})
         print(f"[{label}] erro: {exc}\n{tb}", file=sys.stderr)
@@ -403,7 +443,13 @@ def handle_run(storage: Storage, args: argparse.Namespace) -> None:
                 break
             time.sleep(1)
     except KeyboardInterrupt:
-        print("Encerrado pelo usurio.")
+        print("Encerrado pelo usuário.")
+    finally:
+        if services.get("lnd_rest"):
+            try:
+                services["lnd_rest"].close()
+            except Exception:
+                pass
 
 
 def main(argv: Optional[list[str]] = None) -> None:

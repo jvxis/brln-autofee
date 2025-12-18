@@ -1,11 +1,12 @@
-﻿# BRLN Orchestrator
+# BRLN Orchestrator
 
 Coordenador em **Python** que integra os scripts legados `brln-autofee.py`, `lndg_AR_trigger.py` e `ai_param_tuner.py` em um **único** processo, com estado persistido em **SQLite** e serviços externos encapsulados.
 
 ## Requisitos
 
 * Python 3.11 ou superior
-* `lncli` e `bos` instalados no PATH (ou caminhos absolutos)
+* `lncli` instalado no PATH (ou caminho absoluto)
+* `bos` instalado **OU** LND REST API habilitada (recomendado)
 * Node LND com LNDg (API HTTP e banco SQLite acessíveis)
 * Conta Amboss com token GraphQL
 * Opcional: bot do Telegram para notificações
@@ -45,6 +46,44 @@ python3 -m brln_orchestrator set-secret \
 ```
 
 * Caso não utilize Telegram, omita os parâmetros correspondentes.
+
+## LND REST API (Recomendado)
+
+Por padrão, o orquestrador usa o `bos` (Balance of Satoshis) para atualizar taxas dos canais. Cada chamada ao `bos` abre um novo processo e uma nova conexão com o LND, o que pode sobrecarregar o PostgreSQL se o LND usar esse backend.
+
+A **LND REST API** resolve esse problema usando uma **sessão HTTP persistente** (keep-alive), reutilizando a mesma conexão para todas as atualizações.
+
+### Benefícios
+
+| BOS (padrão) | REST API |
+|--------------|----------|
+| 1 processo por canal | 1 sessão HTTP reutilizada |
+| Cada processo abre conexão LND→PostgreSQL | Uma conexão persistente |
+| Overhead de Node.js | Python nativo |
+
+### Configuração
+
+```bash
+python3 -m brln_orchestrator set-secret \
+  --lnd-rest-host "localhost:8080" \
+  --lnd-macaroon-path "/caminho/para/.lnd/data/chain/bitcoin/mainnet/admin.macaroon" \
+  --lnd-tls-cert-path "/caminho/para/.lnd/tls.cert" \
+  --use-lnd-rest 1
+```
+
+* `--lnd-rest-host`: Host e porta da REST API do LND (padrão: `localhost:8080`)
+* `--lnd-macaroon-path`: Caminho do `admin.macaroon` (padrão: `~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon`)
+* `--lnd-tls-cert-path`: Caminho do `tls.cert` (padrão: `~/.lnd/tls.cert`)
+* `--use-lnd-rest 1`: Ativa a REST API (use `0` para voltar ao BOS)
+
+### Verificar porta REST do LND
+
+```bash
+grep -i "restlisten" ~/.lnd/lnd.conf
+# Exemplo: restlisten=0.0.0.0:8080
+```
+
+Ao iniciar, o orquestrador exibirá `🔌 Usando LND REST API (sessão persistente)` se a REST API estiver ativa.
 
 ## Exclusões
 

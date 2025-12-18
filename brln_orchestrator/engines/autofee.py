@@ -13,9 +13,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..services.amboss import AmbossService
 from ..services.bos import BosService
+from ..services.lnd_rest import LndRestService
 from ..services.lndg_db import LNDgDatabase
 from ..services.lncli import LncliService
 from ..services.telegram import TelegramService
+
+FeeService = BosService | LndRestService
 from ..presets import get_mode_presets
 from ..storage import Storage
 
@@ -83,7 +86,7 @@ class AutoFeeEngine:
         self,
         storage: Storage,
         lncli: LncliService,
-        bos: BosService,
+        bos: FeeService,
         amboss: Optional[AmbossService],
         telegram: TelegramService,
         legacy_path: Path,
