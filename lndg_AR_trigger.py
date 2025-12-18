@@ -889,11 +889,10 @@ async def main():
                     else:
                         bits.append("🌐 rebal7d: sem amostra global")
 
-                    mot = " | ".join(bits)
+                    mot_lines = "\n     ".join(bits)
                     action_txt = ("🟢 ON" if payload.get("auto_rebalance", ar_current)
                                   else "🛑 OFF") if "auto_rebalance" in payload else "🛠️ TARGET"
 
-                    # contadores
                     if "auto_rebalance" in payload:
                         if payload.get("auto_rebalance", ar_current):
                             cnt_on += 1
@@ -903,12 +902,15 @@ async def main():
                         cnt_target += 1
 
                     msg = (
-                        f"✅ {action_txt} {alias} ({cid})\n"
-                        f"• 🔌 AR: {ar_state_txt}\n"
-                        f"• 📊 out_ratio {out_r:.2f} • 💱 fee L/R {local_ppm}/{remote_ppm}ppm • 🧮 ar_max_cost {ar_max_cost:.0f}%\n"
+                        f"✅ {action_txt} {alias} ({cid})\n\n"
+                        f"• 🔌 AR: {ar_state_txt}\n\n"
+                        f"• 📊 out_ratio {out_r:.2f}\n"
+                        f"• 💱 fee L/R {local_ppm}/{remote_ppm}ppm\n"
+                        f"• 🧮 ar_max_cost {ar_max_cost:.0f}%\n\n"
                         f"• 🎯 alvo out/in {desired_out_target}/{in_tgt}%"
-                        f"{' (source 5/95)' if cls_eff=='source' else lock_tag}\n"
-                        f"• 🔎 motivo: {mot}"
+                        f"{' (source 5/95)' if cls_eff=='source' else lock_tag}\n\n"
+                        f"📋 Análise:\n"
+                        f"     {mot_lines}"
                     )
                     msgs.append(msg)
 
@@ -956,7 +958,7 @@ async def main():
                     if (desired_out_target == out_tgt) and (not fill_lock_active):
                         lock_tag = ""
 
-                    await update_channel(session, {
+                    await update_channel(session, cid, {
                         "ar_out_target": desired_out_target,
                         "ar_in_target": in_tgt
                     })
@@ -965,16 +967,25 @@ async def main():
                     bias_pp_dbg = get_bias_pp_from_state(state_af, cid, cls_eff)
                     ar_state_txt = "ON" if ar_current else "OFF"
 
+                    target_bits = [
+                        price_gate_ok(local_ppm, remote_ppm, ar_max_cost)[1],
+                        profitable_noglobal(local_ppm, remote_ppm, roi_base_ppm)[1],
+                        roi_cap_ok(local_ppm, seed_last, roi_base_ppm, cls_eff, baseline, out_r)[1],
+                        f"⚙️ Low Outbound = {religa_out_thresh:.2f}",
+                        f"🎛️ bias={bias_pp_dbg:+.0f}pp (ema)"
+                    ]
+                    target_mot_lines = "\n     ".join(target_bits)
+
                     txt = (
-                        f"✅ 🛠️ TARGET {alias} ({cid})\n"
-                        f"• 🔌 AR: {ar_state_txt}\n"
-                        f"• 📊 out_ratio {out_r:.2f} • 💱 fee L/R {local_ppm}/{remote_ppm}ppm • 🧮 ar_max_cost {ar_max_cost:.0f}%\n"
+                        f"✅ 🛠️ TARGET {alias} ({cid})\n\n"
+                        f"• 🔌 AR: {ar_state_txt}\n\n"
+                        f"• 📊 out_ratio {out_r:.2f}\n"
+                        f"• 💱 fee L/R {local_ppm}/{remote_ppm}ppm\n"
+                        f"• 🧮 ar_max_cost {ar_max_cost:.0f}%\n\n"
                         f"• 🎯 alvo out/in {desired_out_target}/{in_tgt}%"
-                        f"{' (source 5/95)' if cls_eff=='source' else lock_tag}\n"
-                        f"• 🔎 motivo: {price_gate_ok(local_ppm, remote_ppm, ar_max_cost)[1]} | "
-                        f"{profitable_noglobal(local_ppm, remote_ppm, roi_base_ppm)[1]} | "
-                        f"{roi_cap_ok(local_ppm, seed_last, roi_base_ppm, cls_eff, baseline, out_r)[1]} | "
-                        f"⚙️ Low Outbound = {religa_out_thresh:.2f} | 🎛️ bias={bias_pp_dbg:+.0f}pp (ema)"
+                        f"{' (source 5/95)' if cls_eff=='source' else lock_tag}\n\n"
+                        f"📋 Análise:\n"
+                        f"     {target_mot_lines}"
                     )
                     msgs.append(txt)
                     log_append({

@@ -6,6 +6,30 @@ from typing import Any, Dict, Optional
 
 import requests
 from requests.auth import HTTPBasicAuth
+from requests.exceptions import ConnectionError, Timeout
+
+T = TypeVar("T")
+
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 1.0
+BACKOFF_MULTIPLIER = 2.0
+
+
+def _with_retry(func: Callable[[], T], operation: str) -> T:
+    last_error: Optional[Exception] = None
+    backoff = INITIAL_BACKOFF
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            return func()
+        except (ConnectionError, Timeout) as e:
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(backoff)
+                backoff *= BACKOFF_MULTIPLIER
+            continue
+
+    raise ConnectionError(f"{operation}: {last_error}") from last_error
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from logging_config import get_logger

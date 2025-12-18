@@ -437,6 +437,216 @@ def _chunk_text(text, max_len=4000):
         text = text[cut:]
     return chunks
 
+
+def _format_channel_entry(entry: str) -> str:
+    lines = entry.split('\n')
+    result = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.startswith('✅') or stripped.startswith('🫤') or stripped.startswith('⏭️'):
+            if '|' in stripped:
+                parts = stripped.split('|')
+                header = parts[0].strip()
+                result.append(header)
+                result.append("")
+
+                metrics = []
+                tags = []
+
+                for p in parts[1:]:
+                    p = p.strip()
+                    if not p:
+                        continue
+
+                    is_tag = False
+                    tag_chars = ['🟢', '🔴', '🏷️', '🧭', '🧬', '🔬', '⛔', '🧱', '⚡', '💹', '🧲', '🔍', '⏳', '🩹', '🧘']
+                    for tc in tag_chars:
+                        if tc in p:
+                            is_tag = True
+                            break
+
+                    if is_tag or (len(p) < 30 and not any(x in p for x in ['≈', ':', '=', 'ppm', '%'])):
+                        individual_tags = p.split()
+                        tags.extend(individual_tags)
+                    else:
+                        metrics.append(p)
+
+                if metrics:
+                    result.append("  📊 Métricas:")
+                    for m in metrics:
+                        result.append(f"     • {m}")
+                    result.append("")
+
+                if tags:
+                    result.append("  🏷️ Status:")
+                    tag_line = "     "
+                    for t in tags:
+                        if len(tag_line) + len(t) + 1 > 60:
+                            result.append(tag_line)
+                            tag_line = f"     {t}"
+                        else:
+                            tag_line += f" {t}" if tag_line.strip() else t
+                    if tag_line.strip():
+                        result.append(tag_line)
+                    result.append("")
+            else:
+                result.append(stripped)
+                result.append("")
+
+        elif stripped.startswith('🔮'):
+            result.append(f"  {stripped}")
+            result.append("")
+
+        elif stripped.startswith('💡') or stripped.startswith('📖'):
+            result.append(f"  {stripped}")
+            result.append("")
+
+        else:
+            if '|' in stripped and stripped.count('|') >= 3:
+                parts = [p.strip() for p in stripped.split('|') if p.strip()]
+                for p in parts:
+                    result.append(f"     • {p}")
+                result.append("")
+            else:
+                result.append(f"  {stripped}")
+                result.append("")
+
+    return '\n'.join(result)
+
+
+def _format_telegram_report(report: list) -> str:
+    if not report:
+        return ""
+
+    full_text = '\n'.join(report)
+    import re
+
+    lines = []
+    header_lines = []
+    channel_entries = []
+    footer_lines = []
+
+    current_block = []
+    in_channel = False
+
+    for line in report:
+        stripped = line.strip() if line else ""
+
+        is_channel_start = (
+            stripped.startswith('✅') or
+            stripped.startswith('🫤') or
+            stripped.startswith('⏭️') or
+            stripped.startswith('🧭') or
+            stripped.startswith('🧯')
+        ) and ('TARGET' in stripped or 'chan_id' in stripped.lower() or '(' in stripped)
+
+        if is_channel_start:
+            if current_block:
+                block_text = '\n'.join(current_block)
+                if any(block_text.startswith(e) for e in ['✅', '🫤', '⏭️', '🧭', '🧯']):
+                    channel_entries.append(block_text)
+                elif not in_channel:
+                    header_lines.extend(current_block)
+                else:
+                    footer_lines.extend(current_block)
+            current_block = [stripped]
+            in_channel = True
+        elif in_channel and stripped:
+            current_block.append(stripped)
+        elif not in_channel and stripped:
+            header_lines.append(stripped)
+        elif in_channel and not stripped:
+            current_block.append("")
+
+    if current_block:
+        block_text = '\n'.join(current_block)
+        if any(block_text.startswith(e) for e in ['✅', '🫤', '⏭️', '🧭', '🧯']):
+            channel_entries.append(block_text)
+        else:
+            footer_lines.extend(current_block)
+
+    changed = []
+    kept = []
+    skipped = []
+    explorer = []
+    cb = []
+
+    for entry in channel_entries:
+        if entry.startswith('✅'):
+            changed.append(entry)
+        elif entry.startswith('🫤'):
+            kept.append(entry)
+        elif entry.startswith('⏭️'):
+            skipped.append(entry)
+        elif entry.startswith('🧭'):
+            explorer.append(entry)
+        elif entry.startswith('🧯'):
+            cb.append(entry)
+
+    output = []
+
+    if header_lines:
+        output.extend(header_lines[:2])
+        output.append("")
+        output.append("")
+
+    if changed:
+        output.append("✅ CANAIS ALTERADOS")
+        output.append("")
+        for entry in changed:
+            output.append(_format_channel_entry(entry))
+            output.append("")
+            output.append("")
+
+    if kept:
+        output.append("🫤 CANAIS MANTIDOS")
+        output.append("")
+        for entry in kept:
+            output.append(_format_channel_entry(entry))
+            output.append("")
+            output.append("")
+
+    if skipped:
+        output.append("⏭️ CANAIS IGNORADOS")
+        output.append("")
+        for entry in skipped:
+            output.append(_format_channel_entry(entry))
+            output.append("")
+            output.append("")
+
+    if explorer:
+        output.append("🧭 EXPLORER STATUS")
+        output.append("")
+        for entry in explorer:
+            output.append(_format_channel_entry(entry))
+            output.append("")
+            output.append("")
+
+    if cb:
+        output.append("🧯 CIRCUIT BREAKER")
+        output.append("")
+        for entry in cb:
+            output.append(_format_channel_entry(entry))
+            output.append("")
+            output.append("")
+
+    if footer_lines:
+        useful_footer = [f for f in footer_lines if f.strip()]
+        if useful_footer:
+            output.append("")
+            output.append("ℹ️ Informações:")
+            output.append("")
+            for f in useful_footer:
+                output.append(f)
+                output.append("")
+
+    return '\n'.join(output)
+
+
 def tg_send_big(text):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT:
         return
@@ -2824,7 +3034,8 @@ def main(dry_run=False):
     msg = "\n".join(report)
     print(msg)
     if not dry_run:
-        tg_send_big(msg)
+        tg_msg = _format_telegram_report(report)
+        tg_send_big(tg_msg)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

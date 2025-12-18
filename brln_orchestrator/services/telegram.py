@@ -5,6 +5,11 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+from requests.exceptions import ConnectionError, Timeout
+
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 1.0
+BACKOFF_MULTIPLIER = 2.0
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from logging_config import get_logger

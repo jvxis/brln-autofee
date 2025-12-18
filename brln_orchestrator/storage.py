@@ -166,12 +166,29 @@ class Storage:
 
     # --- Secrets ---------------------------------------------------------
 
+    @staticmethod
+    def _normalize_path(value: Optional[str]) -> Optional[str]:
+        """Ensure paths that look absolute (contain 'home/') start with '/'."""
+        if not value:
+            return value
+        v = value.strip()
+        # Fix common case: 'home/...' should be '/home/...'
+        if v.startswith("home/") or v.startswith("home\\"):
+            return "/" + v
+        return v
+
     def get_secrets(self) -> Dict[str, Optional[str]]:
+        path_keys = ("bos_path", "lncli_path", "lndg_db_path", "lnd_macaroon_path", "lnd_tls_cert_path")
         with self._lock:
             row = self._conn.execute("SELECT * FROM secrets WHERE id = 1").fetchone()
             if row is None:
                 return {}
-            return dict(row)
+            result = dict(row)
+            # Normalize paths that should be absolute
+            for key in path_keys:
+                if key in result:
+                    result[key] = self._normalize_path(result[key])
+            return result
 
     def update_secrets(self, **kwargs: Optional[str]) -> None:
         if not kwargs:
