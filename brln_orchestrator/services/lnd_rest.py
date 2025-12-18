@@ -3,11 +3,17 @@ from __future__ import annotations
 import codecs
 import json
 import ssl
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from logging_config import get_logger
+
+logger = get_logger("services.lnd_rest")
 
 
 class LndRestService:
@@ -31,6 +37,7 @@ class LndRestService:
         self.macaroon_hex = self._load_macaroon()
 
         self.session = self._create_session()
+        logger.info(f"LND REST Service inicializado: {self.base_url}")
 
         self._chan_point_cache: Dict[str, str] = {}
         self._channels_loaded = False
@@ -76,6 +83,7 @@ class LndRestService:
             return
 
         url = f"{self.base_url}/v1/channels"
+        logger.debug("Carregando lista de canais")
         try:
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
@@ -88,7 +96,9 @@ class LndRestService:
                     self._chan_point_cache[pubkey] = chan_point
 
             self._channels_loaded = True
+            logger.info(f"Canais carregados: {len(self._chan_point_cache)} canais")
         except requests.exceptions.RequestException as exc:
+            logger.error(f"Erro ao listar canais: {exc}")
             raise RuntimeError(f"Erro ao listar canais: {exc}") from exc
 
     def _get_chan_point_for_pubkey(self, pubkey: str) -> Optional[str]:
@@ -140,6 +150,7 @@ class LndRestService:
 
         try:
             url = f"{self.base_url}/v1/chanpolicy"
+            logger.debug(f"Atualizando fee: pubkey={pubkey[:16]}... ppm={ppm}")
             response = self.session.post(url, json=data, timeout=30)
             response.raise_for_status()
             result = response.json()
@@ -147,11 +158,14 @@ class LndRestService:
             failed = result.get("failed_updates", [])
             if failed:
                 errors = [f"{f.get('outpoint', '?')}: {f.get('update_error', 'unknown')}" for f in failed]
+                logger.error(f"Falha ao atualizar política: {', '.join(errors)}")
                 raise RuntimeError(f"Falha ao atualizar política: {', '.join(errors)}")
 
+            logger.info(f"Fee atualizado: pubkey={pubkey[:16]}... ppm={ppm}")
             return None
 
         except requests.exceptions.RequestException as exc:
+            logger.error(f"REST API error: {exc}")
             raise RuntimeError(f"REST API error: {exc}") from exc
 
     def get_info(self) -> Dict[str, Any]:

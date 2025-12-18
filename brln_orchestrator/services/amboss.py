@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import sys
 import time
-from typing import Optional
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import requests
 from requests.exceptions import ConnectionError, Timeout
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from logging_config import get_logger
+
+logger = get_logger("services.amboss")
 
 from ..storage import Storage
 
@@ -18,6 +25,7 @@ class AmbossService:
         self._storage = storage
         self._token = token
         self._url = url
+        logger.info("Amboss Service inicializado")
 
     def _cached_series(self, pubkey: str, metric: str, submetric: str, ttl: int) -> Optional[list]:
         row = self._storage.get_amboss_series(pubkey, metric, submetric)
@@ -55,8 +63,10 @@ class AmbossService:
     ) -> Optional[list]:
         cached = self._cached_series(pubkey, metric, submetric, ttl)
         if cached is not None:
+            logger.debug(f"Cache hit para {metric}/{submetric} pubkey={pubkey[:16]}...")
             return cached
 
+        logger.debug(f"Buscando métricas Amboss: {metric}/{submetric} pubkey={pubkey[:16]}...")
         headers = {
             "content-type": "application/json",
             "Authorization": f"Bearer {self._token}",
@@ -76,14 +86,19 @@ class AmbossService:
                 "submetric": submetric,
             },
         }
-        resp = self._post_with_retry(headers, payload)
-        resp.raise_for_status()
-        data = resp.json()
         try:
+            resp = requests.post(self._url, headers=headers, json=payload, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
             series = data["data"]["getNodeMetrics"]["historical_series"] or []
+            cleaned = [float(entry[1]) for entry in series if isinstance(entry, list) and len(entry) == 2]
+            self._storage.set_amboss_series(pubkey, metric, submetric, cleaned)
+            logger.debug(f"Métricas Amboss obtidas: {len(cleaned)} pontos")
+            return cleaned
         except KeyError as exc:
+            logger.error(f"Resposta inesperada do Amboss: {data}")
             raise RuntimeError(f"Unexpected Amboss response: {data}") from exc
-        cleaned = [float(entry[1]) for entry in series if isinstance(entry, list) and len(entry) == 2]
-        self._storage.set_amboss_series(pubkey, metric, submetric, cleaned)
-        return cleaned
+        except requests.RequestException as e:
+            logger.error(f"Erro ao buscar métricas Amboss: {e}")
+            raise
 

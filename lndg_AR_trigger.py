@@ -9,9 +9,16 @@ import math
 import os
 import re
 import sqlite3
+import sys
 import time
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from logging_config import setup_logging, get_logger
+
+setup_logging()
+logger = get_logger("ar_trigger")
 
 # =========================
 # HARD-CODE CONFIG
@@ -615,21 +622,24 @@ def bypass_dwell_for_off(ar_current: bool,
 # =========================
 
 async def main():
+    logger.info("Iniciando AR Trigger")
     timeout = aiohttp.ClientTimeout(total=40)
     connector = aiohttp.TCPConnector(limit=8)
     version_info = read_version_info(VERSIONS_FILE)
     vstr = version_info.get("version", "0.0.0")
+    logger.info(f"Versão: {vstr}")
 
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-        # 0) Carregar parâmetros do AutoFee diretamente do arquivo oficial
         af_params = load_autofee_params()
         religa_out_thresh = float(af_params.get("LOW_OUTBOUND_THRESH", 0.05))
+        logger.debug(f"Parâmetros AutoFee carregados: LOW_OUTBOUND_THRESH={religa_out_thresh}")
 
-        # 1) Canais
         channels = await fetch_all_channels(session)
         if not channels:
+            logger.warning("Nenhum canal retornado do LNDg")
             await tg_send(session, "⚠️ LNDg: nenhum canal retornado.")
             return
+        logger.info(f"Canais carregados: {len(channels)}")
 
         # 2) Outbound global
         total_cap = sum(int(c.get("capacity") or 0) for c in channels)
@@ -1037,7 +1047,9 @@ async def main():
 
         body = "\n\n".join(msgs) if msgs else "Sem mudanças."
         await tg_send(session, f"{header}\n{body}")
+        logger.info(f"AR Trigger concluído: mudanças={changes}, on={cnt_on}, off={cnt_off}, target={cnt_target}")
 
 if __name__ == "__main__":
+    logger.info("Executando AR Trigger standalone")
     asyncio.run(main())
 
