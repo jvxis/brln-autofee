@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import requests
+from requests.exceptions import ConnectionError, Timeout
 
 from ..storage import Storage
+
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 1.0
+BACKOFF_MULTIPLIER = 2.0
 
 
 class AmbossService:
@@ -22,6 +27,22 @@ class AmbossService:
             if int(time.time()) - int(row["updated_at"]) > ttl:
                 return None
         return row["data"]
+
+    def _post_with_retry(self, headers: dict, payload: dict) -> requests.Response:
+        backoff = INITIAL_BACKOFF
+        last_error: Optional[Exception] = None
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                return requests.post(self._url, headers=headers, json=payload, timeout=30)
+            except (ConnectionError, Timeout) as e:
+                last_error = e
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(backoff)
+                    backoff *= BACKOFF_MULTIPLIER
+                continue
+
+        raise ConnectionError(f"Amboss API: {last_error}") from last_error
 
     def historical_series(
         self,
@@ -55,7 +76,7 @@ class AmbossService:
                 "submetric": submetric,
             },
         }
-        resp = requests.post(self._url, headers=headers, json=payload, timeout=30)
+        resp = self._post_with_retry(headers, payload)
         resp.raise_for_status()
         data = resp.json()
         try:

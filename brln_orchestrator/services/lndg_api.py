@@ -1,9 +1,34 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 import requests
 from requests.auth import HTTPBasicAuth
+from requests.exceptions import ConnectionError, Timeout
+
+T = TypeVar("T")
+
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 1.0
+BACKOFF_MULTIPLIER = 2.0
+
+
+def _with_retry(func: Callable[[], T], operation: str) -> T:
+    last_error: Optional[Exception] = None
+    backoff = INITIAL_BACKOFF
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            return func()
+        except (ConnectionError, Timeout) as e:
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(backoff)
+                backoff *= BACKOFF_MULTIPLIER
+            continue
+
+    raise ConnectionError(f"{operation}: {last_error}") from last_error
 
 
 class LNDgAPI:
@@ -13,12 +38,17 @@ class LNDgAPI:
 
     def list_channels(self) -> list[Dict[str, Any]]:
         url = f"{self._base_url}/api/channels/"
-        params = {"is_open": "true", "is_active": "true"}
-        results = []
+        params: Dict[str, str] = {"is_open": "true", "is_active": "true"}
+        results: list[Dict[str, Any]] = []
+
         while url:
-            resp = requests.get(url, params=params, auth=self._auth, timeout=20)
+            def fetch() -> requests.Response:
+                return requests.get(url, params=params, auth=self._auth, timeout=20)
+
+            resp = _with_retry(fetch, f"list_channels GET {url}")
             resp.raise_for_status()
             data = resp.json()
+
             if isinstance(data, dict) and "results" in data:
                 results.extend(data["results"])
                 url = data.get("next")
@@ -32,11 +62,19 @@ class LNDgAPI:
 
     def update_channel(self, chan_id: str, payload: Dict[str, Any]) -> None:
         url = f"{self._base_url}/api/channels/{chan_id}/"
-        resp = requests.put(url, json=payload, auth=self._auth, timeout=20)
+
+        def put_request() -> requests.Response:
+            return requests.put(url, json=payload, auth=self._auth, timeout=20)
+
+        resp = _with_retry(put_request, f"update_channel PUT {url}")
+
         if 200 <= resp.status_code < 300:
             return
         if resp.status_code in (400, 405):
-            resp = requests.patch(url, json=payload, auth=self._auth, timeout=20)
+            def patch_request() -> requests.Response:
+                return requests.patch(url, json=payload, auth=self._auth, timeout=20)
+
+            resp = _with_retry(patch_request, f"update_channel PATCH {url}")
             resp.raise_for_status()
             return
         # Preserve original error details for other status codes
