@@ -11,15 +11,32 @@ Coordenador em **Python** que integra os scripts legados `brln-autofee.py`, `lnd
 * Conta Amboss com token GraphQL
 * Opcional: bot do Telegram para notificações
 
-### Dependências Python
+## Instalação
+
+### 1. Instalar uv (gerenciador de pacotes)
+
+O projeto usa [uv](https://docs.astral.sh/uv/) para gerenciamento de dependências.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# .\.venv\Scripts\Activate.ps1   # Windows PowerShell
-python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc
 ```
+
+### 2. Clonar o repositório
+
+```bash
+git clone https://github.com/jvxis/brln-autofee.git
+cd brln-autofee
+```
+
+### 3. Instalar dependências
+
+```bash
+uv sync
+```
+
+Isso cria automaticamente o virtualenv (`.venv/`) e instala todas as dependências.
+
 
 ## Inicialização do SQLite
 
@@ -211,16 +228,88 @@ Não há arquivos JSON ou TXT externos; todo o estado persistente fica no SQLite
 
 ## Logs e Telemetria
 
-* As saídas dos módulos são impressas no terminal e gravadas em `telemetry_log`.
-* Falhas em loops registram o *stack trace* completo (ex.: `[autofee] loop failed: ...`).
-* Use:
+O projeto possui um sistema de logging centralizado com arquivos rotativos:
 
-  ```bash
-  sqlite3 brln_orchestrator.sqlite3 "SELECT ts,component,level,msg FROM telemetry_log ORDER BY ts DESC LIMIT 20;"
-  ```
+* `logs/brln.log` - Log principal (INFO+)
+* `logs/brln.error.log` - Apenas erros (ERROR+)
 
-  para inspecionar rapidamente.
+Configurável via variáveis de ambiente:
 
+| Variável | Valores | Padrão |
+|----------|---------|--------|
+| `BRLN_LOG_LEVEL` | DEBUG, INFO, WARNING, ERROR | INFO |
+| `BRLN_LOG_FORMAT` | text, json | text |
+| `BRLN_LOG_CONSOLE` | true, false | true |
+| `BRLN_LOG_FILE` | true, false | true |
+
+Exemplo com debug:
+```bash
+BRLN_LOG_LEVEL=DEBUG python3 -m brln_orchestrator run ...
+```
+
+Além disso, as saídas são gravadas em `telemetry_log` no SQLite:
+
+```bash
+sqlite3 brln_orchestrator.sqlite3 "SELECT ts,component,level,msg FROM telemetry_log ORDER BY ts DESC LIMIT 20;"
+```
+
+
+## Systemd Service
+
+Para rodar o orquestrador como serviço do sistema:
+
+### 1. Criar o arquivo de serviço
+
+```bash
+sudo nano /etc/systemd/system/brln-autofee.service
+```
+
+Cole o seguinte conteúdo (ajuste os caminhos e parâmetros conforme necessário):
+
+```ini
+[Unit]
+Description=BRLN AutoFee Orchestrator - Lightning Network Fee Manager
+After=lnd.service
+Wants=lnd.service
+
+[Service]
+Type=simple
+User=lnd
+Group=lnd
+WorkingDirectory=/home/lnd/brln-autofee
+Environment="PATH=/home/lnd/brln-autofee/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/lnd/brln-autofee/.venv/bin/python3 -m brln_orchestrator run \
+    --mode moderado \
+    --no-dry-run-autofee \
+    --no-dry-run-ar \
+    --no-dry-run-tuner \
+    --loop-interval-autofee 3600 \
+    --loop-interval-ar 300 \
+    --loop-interval-tuner 7200
+
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 2. Habilitar e iniciar o serviço
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable brln-autofee
+sudo systemctl start brln-autofee
+```
+
+### 3. Verificar status e logs
+
+```bash
+sudo systemctl status brln-autofee
+sudo journalctl -fu brln-autofee
+```
 
 ## Limpeza
 

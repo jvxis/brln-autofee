@@ -1,0 +1,26 @@
+[project]
+name = "brln-autofee"
+version = "0.4.10"
+description = "Lightning Network AutoFee Orchestrator - Coordenador de fees automático para nodes LND"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "jvxis"},
+    {name = "emtll"},
+]
+keywords = ["lightning", "lnd", "bitcoin", "autofee", "routing"]
+dependencies = [
+    "aiohttp>=3.9.0",
+    "requests>=2.31.0",
+    "urllib3>=2.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/jvxis/brln-autofee"
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = []
