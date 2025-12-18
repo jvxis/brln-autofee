@@ -7,6 +7,12 @@ import requests
 import re
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from logging_config import setup_logging, get_logger
+
+setup_logging()
+logger = get_logger("autofee")
+
 
 # ========== CONFIG ==========
 DB_PATH = '/home/admin/lndg/data/db.sqlite3'   # ajuste se necessario
@@ -1258,13 +1264,12 @@ def _clear_explorer_state(st: dict, cid: str):
 
 # ========== PIPELINE ==========
 def main(dry_run=False):
+    logger.info("Iniciando AutoFee")
     global EXCL_DRY_VERBOSE,ASSISTED_DIAG_ENABLE
 
-    # Override por variável de ambiente (sem quebrar compat)
     env_excl = os.getenv("EXCL_DRY_VERBOSE")
     if env_excl is not None:
         EXCL_DRY_VERBOSE = str(env_excl).strip().lower() in ("1","true","yes","on")
-    # Override de explicação didática por variável de ambiente
     env_did = os.getenv("DIDACTIC_EXPLAIN")
     if env_did is not None:
         globals()["DIDACTIC_EXPLAIN_ENABLE"] = str(env_did).strip().lower() in ("1","true","yes","on")
@@ -1272,7 +1277,7 @@ def main(dry_run=False):
     env_did_level = os.getenv("DIDACTIC_LEVEL")
     if env_did_level and env_did_level.strip().lower() in ("basic","detailed"):
         globals()["DIDACTIC_LEVEL"] = env_did_level.strip().lower()
-        
+
     env_diag = os.getenv("DID_ASSISTED")
     if env_diag is not None:
         ASSISTED_DIAG_ENABLE = str(env_diag).strip().lower() in ("1","true","yes","on")
@@ -1282,6 +1287,7 @@ def main(dry_run=False):
     state = get_state()
     version_info = read_version_info(VERSIONS_FILE)
     vstr = version_info.get("version", "0.0.0")
+    logger.info(f"Versão: {vstr}, dry_run={dry_run}")
 
     t1_epoch, t2_epoch = epoch_days_ago(LOOKBACK_DAYS)
     start_dt = datetime.datetime.fromtimestamp(t1_epoch, datetime.timezone.utc)
@@ -2858,5 +2864,6 @@ if __name__ == "__main__":
         DIDACTIC_EXPLAIN_ENABLE = True
         DIDACTIC_LEVEL = "detailed"
 
-
+    logger.info("Executando AutoFee standalone")
     main(dry_run=args.dry_run)
+    logger.info("AutoFee finalizado")

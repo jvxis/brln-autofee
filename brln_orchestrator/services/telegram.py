@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Optional
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from logging_config import get_logger
+
+logger = get_logger("services.telegram")
 
 
 class TelegramService:
@@ -15,20 +22,26 @@ class TelegramService:
 
     def send(self, message: str, *, parse_mode: Optional[str] = None) -> None:
         if not self.enabled():
+            logger.debug("Telegram desabilitado, mensagem não enviada")
             return
         url = f"https://api.telegram.org/bot{self._token}/sendMessage"
-        for chunk in chunk_text(message, 3900):
+        chunks = chunk_text(message, 3900)
+        logger.debug(f"Enviando mensagem Telegram ({len(chunks)} chunks)")
+        for i, chunk in enumerate(chunks):
             payload = {
                 "chat_id": self._chat_id,
                 "text": chunk,
             }
             if parse_mode:
                 payload["parse_mode"] = parse_mode
-            requests.post(
-                url,
-                timeout=15,
-                json=payload,
-            )
+            try:
+                resp = requests.post(url, timeout=15, json=payload)
+                if resp.status_code == 200:
+                    logger.debug(f"Chunk {i+1}/{len(chunks)} enviado com sucesso")
+                else:
+                    logger.warning(f"Telegram retornou status {resp.status_code}: {resp.text[:200]}")
+            except requests.RequestException as e:
+                logger.error(f"Erro ao enviar mensagem Telegram: {e}")
 
 
 def chunk_text(text: str, max_len: int) -> list[str]:

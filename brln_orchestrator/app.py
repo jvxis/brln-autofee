@@ -19,6 +19,12 @@ from .services.lncli import LncliService
 from .services.telegram import TelegramService
 from .storage import Storage
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import setup_logging, get_logger
+
+setup_logging()
+logger = get_logger("app")
+
 APP_VERSION = "0.4.10"
 APP_VERSION_DESC = "AutoFee Integrado - Melhoria Autofee - Novo Módulo de Inbound Fees (Desconto) + Alteração de Fees via LND api by Morata"
 DEFAULT_DB_PATH = Path("brln_orchestrator.sqlite3")
@@ -146,9 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def handle_init_db(args: argparse.Namespace) -> None:
     db_path = resolve_db_path(getattr(args, "db_path", None))
+    logger.info(f"Inicializando banco de dados em {db_path}")
     storage = Storage(db_path)
     ensure_version(storage)
     storage.close()
+    logger.info(f"Banco inicializado com sucesso: {db_path}")
     print(f"[ok] banco Inicializado em {db_path}")
 
 
@@ -280,6 +288,7 @@ def handle_show_config(storage: Storage) -> None:
 
 
 def build_services(storage: Storage) -> Dict[str, Any]:
+    logger.info("Inicializando serviços")
     secrets = storage.get_secrets()
     lncli = LncliService(secrets.get("lncli_path") or "lncli")
 
@@ -295,11 +304,14 @@ def build_services(storage: Storage) -> Dict[str, Any]:
                 tls_cert_path=secrets.get("lnd_tls_cert_path"),
             )
             fee_service = lnd_rest
+            logger.info("LND REST API inicializada com sessão persistente")
             print("🔌 Usando LND REST API (sessão persistente)")
         except Exception as exc:
+            logger.warning(f"Falha ao inicializar LND REST: {exc}. Usando BOS como fallback")
             print(f"⚠️ Erro ao inicializar LND REST: {exc}. Fallback para BOS.")
             fee_service = BosService(secrets.get("bos_path") or "bos")
     else:
+        logger.info("Usando BOS para gerenciamento de fees")
         fee_service = BosService(secrets.get("bos_path") or "bos")
 
     telegram = TelegramService(secrets.get("telegram_token"), secrets.get("telegram_chat"))
@@ -350,20 +362,28 @@ def instantiate_engines(storage: Storage, services: Dict[str, Any]) -> Dict[str,
 
 
 def run_module(func, label: str, *, storage: Storage) -> None:
+    logger.debug(f"Executando módulo: {label}")
+    start_time = time.time()
     try:
         output = func()
+        elapsed = time.time() - start_time
+        logger.info(f"Módulo {label} executado em {elapsed:.2f}s")
         if output:
             print(output.strip())
             storage.log(label, "INFO", output.strip(), None)
     except Exception as exc:
+        elapsed = time.time() - start_time
         tb = traceback.format_exc().strip()
+        logger.error(f"Módulo {label} falhou após {elapsed:.2f}s: {exc}")
         storage.log(label, "ERROR", str(exc), {"traceback": tb})
         print(f"[{label}] erro: {exc}\n{tb}", file=sys.stderr)
 
 
 def handle_run(storage: Storage, args: argparse.Namespace) -> None:
+    logger.info(f"Iniciando BRLN AutoFee v{APP_VERSION}")
     ensure_version(storage)
     settings = load_settings(storage)
+    logger.debug(f"Configurações carregadas: {settings}")
 
     def resolve_toggle(arg_value: Optional[bool], key: str) -> bool:
         if arg_value is None:
@@ -405,6 +425,8 @@ def handle_run(storage: Storage, args: argparse.Namespace) -> None:
     next_run = {name: 0.0 for name in intervals.keys()}
 
     once = args.once
+    logger.info(f"Módulos habilitados: autofee={loop_enabled['autofee']}, ar={loop_enabled['ar']}, tuner={loop_enabled['tuner']}")
+    logger.info(f"Intervalos: autofee={intervals['autofee']}s, ar={intervals['ar']}s, tuner={intervals['tuner']}s")
     try:
         while True:
             now = time.time()

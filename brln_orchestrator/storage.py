@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import get_logger
+
+logger = get_logger("storage")
 
 
 class Storage:
@@ -14,9 +20,11 @@ class Storage:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
         self._lock = threading.RLock()
+        logger.info(f"Inicializando Storage: {self._path}")
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
+        logger.debug("Schema do banco inicializado")
 
     def close(self) -> None:
         with self._lock:

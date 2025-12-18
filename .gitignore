@@ -6,3 +6,5 @@ brln_orchestrator.sqlite3
 temp_patch.txt
 brln_orchestrator.sqlite3-shm
 brln_orchestrator.sqlite3-wal
+logs/
+*.log
