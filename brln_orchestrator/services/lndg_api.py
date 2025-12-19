@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -30,6 +31,7 @@ def _with_retry(func: Callable[[], T], operation: str) -> T:
             continue
 
     raise ConnectionError(f"{operation}: {last_error}") from last_error
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from logging_config import get_logger
