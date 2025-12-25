@@ -1,4 +1,4 @@
-# BRLN Orchestrator
+﻿# BRLN Orchestrator
 
 Coordenador em **Python** que integra os scripts legados `brln-autofee.py`, `lndg_AR_trigger.py` e `ai_param_tuner.py` em um **único** processo, com estado persistido em **SQLite** e serviços externos encapsulados.
 

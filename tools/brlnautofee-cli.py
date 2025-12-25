@@ -91,6 +91,38 @@ def parse_header(header: str) -> dict:
     return data
 
 
+def parse_action(action: str) -> dict:
+    info = {"raw": action, "local": None, "new": None, "kind": None, "dry": False}
+    if not action:
+        return info
+    lower = action.lower()
+    if "dry" in lower:
+        info["dry"] = True
+    m = re.search("(\\d+)\\s*(?:->|\u2192)\\s*(\\d+)", action)
+    if m:
+        info["local"] = int(m.group(1))
+        info["new"] = int(m.group(2))
+        info["kind"] = "set"
+        return info
+    if "mant" in lower or "keep" in lower:
+        nums = parse_numbers(action)
+        if nums:
+            val = int(nums[0])
+            info["local"] = val
+            info["new"] = val
+            info["kind"] = "keep"
+        return info
+    return info
+
+
+def parse_trf_token(token: str) -> dict | None:
+    norm = normalize_tag(token)
+    m = re.match(r"t(\d+)/r(\d+)/f(\d+)$", norm)
+    if not m:
+        return None
+    return {"t": int(m.group(1)), "r": int(m.group(2)), "f": int(m.group(3))}
+
+
 def parse_numbers(part: str) -> list[float]:
     return [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", part)]
 
@@ -228,7 +260,6 @@ def is_tag_token(norm: str) -> bool:
         "vol",
         "ratio",
         "inb",
-        "t",
         "on",
         "off",
         "back",
@@ -266,6 +297,8 @@ def explain_tag(token: str) -> str | None:
     norm = normalize_tag(token)
     if not norm:
         return None
+    nums = parse_numbers(token)
+    num = nums[-1] if nums else None
     if "seedcap:none" in norm:
         return "seedcap:none: seed sem limitacao por guard."
     if norm.startswith("floor-lock"):
@@ -277,8 +310,12 @@ def explain_tag(token: str) -> str | None:
     if norm.startswith("hold-small"):
         return "hold-small: mudanca pequena demais, BOS nao enviou."
     if norm.startswith("cooldown-profit"):
+        if num is not None:
+            return f"cooldown-profit: queda bloqueada por lucro recente ({int(num)}h)."
         return "cooldown-profit: queda bloqueada por lucro recente (cooldown)."
     if norm.startswith("cooldown"):
+        if num is not None:
+            return f"cooldown: janela minima entre mudancas ainda ativa ({int(num)}h)."
         return "cooldown: janela minima entre mudancas ainda ativa."
     if norm.startswith("global-neg-lock"):
         return "global-neg-lock: margem global negativa, quedas travadas."
@@ -309,10 +346,16 @@ def explain_tag(token: str) -> str | None:
     if norm.startswith("excl-dry"):
         return "excl-dry: canal excluido (simulacao apenas)."
     if norm.startswith("surge+"):
+        if num is not None:
+            return f"surge: boost de demanda em canal drenado (+{int(num)}%)."
         return "surge: boost de demanda em canal drenado."
     if norm.startswith("top+"):
+        if num is not None:
+            return f"top: boost por alta participacao de receita (+{int(num)}%)."
         return "top: boost por alta participacao de receita."
     if norm.startswith("negm+"):
+        if num is not None:
+            return f"negm: boost por margem negativa (+{int(num)}%)."
         return "negm: boost por margem negativa."
     if norm.startswith("fa-candidate"):
         return "fa-candidate: candidato a fixed assisted (diagnostico)."
@@ -321,14 +364,22 @@ def explain_tag(token: str) -> str | None:
     if norm.startswith("seedcap:"):
         return "seedcap: guard limitou o seed (p95/prev/abs)."
     if norm.startswith("p65:") or norm.startswith("p95:"):
+        if num is not None:
+            return f"p65/p95: percentil Amboss usado como referencia ({int(num)})."
         return "p65/p95: percentil Amboss usado como referencia."
     if norm.startswith("bias"):
+        if num is not None:
+            return f"bias: vies EMA do fluxo (debug de classificacao, {num:+.2f})."
         return "bias: vies EMA do fluxo (debug de classificacao)."
     if norm.startswith("med-blend"):
         return "med-blend: seed hibrido com mediana (mais robusto)."
     if norm.startswith("vol"):
+        if num is not None:
+            return f"vol: penalidade por volatilidade (sigma/mu, {num:.0f}%)."
         return "vol: penalidade por volatilidade (sigma/mu)."
     if norm.startswith("ratio"):
+        if num is not None:
+            return f"ratio: ajuste do seed pelo ratio outgoing/incoming ({num:.2f})."
         return "ratio: ajuste do seed pelo ratio outgoing/incoming."
     if norm.startswith("sink"):
         return "sink: canal classificado como sink (tende a receber mais)."
@@ -339,6 +390,8 @@ def explain_tag(token: str) -> str | None:
     if norm.startswith("unknown"):
         return "unknown: classe indefinida (sem amostra suficiente)."
     if norm.startswith("inb"):
+        if num is not None:
+            return f"inb: desconto de inbound aplicado ({int(num)} ppm)."
         return "inb: desconto de inbound aplicado (rebate)."
     if norm in ("on", "back", "off"):
         return "status: on/off/back (status online do canal)."
@@ -354,6 +407,8 @@ def summarize_signals(tags: list[str]) -> list[str]:
         signals.append("piso travou o ajuste")
     if any("stepcap-lock" in n for n in norms):
         signals.append("step cap segurou a mudanca")
+    elif any("stepcap" in n for n in norms):
+        signals.append("step cap limitou a velocidade")
     if any(n.startswith("cooldown") for n in norms):
         signals.append("cooldown ativo")
     if any("hold-small" in n for n in norms):
@@ -393,6 +448,18 @@ def explain_floor_src(src: str | None) -> str | None:
         return "floor base: outrate 7d (preco observado)."
     if src_l.startswith("outrate21d"):
         return "floor base: outrate historico (memoria)."
+    if src_l == "outrate":
+        return "floor base: outrate observado (protege o preco ja vendido)."
+    if src_l == "peg":
+        return "floor base: peg no outrate (nao vende abaixo do observado)."
+    if src_l == "rebal":
+        return "floor base: reforco de rebal por canal (sink)."
+    if src_l == "sink-extra":
+        return "floor base: reforco extra para sink."
+    if src_l == "seed-cap":
+        return "floor base: cap pelo seed (limite superior do piso)."
+    if src_l == "none":
+        return "floor base: sem piso adicional."
     if "amboss" in src_l:
         return "floor base: seed Amboss."
     return f"floor base: {src}"
@@ -418,6 +485,10 @@ def format_output(line: str, followup: list[str]) -> str:
     header = parse_header(parts[0])
     metrics, unknown_parts = parse_metrics(parts[1:])
     tags, unknown_tags = extract_tags(line, unknown_parts)
+    action_info = parse_action(header.get("action") or "")
+    trf_info = None
+    for tag in tags:
+        trf_info = parse_trf_token(tag) or trf_info
 
     out = []
     out.append("AutoFee decode (canal)")
@@ -429,10 +500,9 @@ def format_output(line: str, followup: list[str]) -> str:
         action = header["action"]
         out.append(f"- acao: {action}")
 
-        m = re.search(r"(\\d+)\\s*(?:->|\\u2192)\\s*(\\d+)", action)
-        if m:
-            old = int(m.group(1))
-            new = int(m.group(2))
+        if action_info.get("local") is not None and action_info.get("new") is not None:
+            old = action_info["local"]
+            new = action_info["new"]
             delta = new - old
             out.append(f"- mudanca: {old} -> {new} ppm (delta {delta:+d})")
             if delta > 0:
@@ -445,7 +515,7 @@ def format_output(line: str, followup: list[str]) -> str:
             action_lower = action.lower()
             if "mant" in action_lower:
                 out.append("- resultado: manteve a taxa (sem mudanca aplicada).")
-        if "dry" in action.lower() or "excl-dry" in action.lower():
+        if action_info.get("dry") or "excl-dry" in action.lower():
             out.append("- modo: dry-run/simulacao (nao aplicou mudanca real).")
 
     if "alvo" in metrics:
@@ -508,11 +578,100 @@ def format_output(line: str, followup: list[str]) -> str:
         signals = summarize_signals(tags)
         if signals:
             out.append(f"- sinais: {'; '.join(signals[:5])}.")
+        if trf_info:
+            out.append(
+                "- debug t/r/f: "
+                f"t={trf_info['t']} (alvo apos boosts/clamps), "
+                f"r={trf_info['r']} (apos step cap/CB), "
+                f"f={trf_info['f']} (floor naquele ponto)."
+            )
 
     if followup:
         out.append("- notas do script:")
         for line in followup:
             out.append(f"  {line}")
+
+    did = []
+    current_ppm = action_info.get("local")
+    if current_ppm is None:
+        lr = metrics.get("fee_lr") or {}
+        current_ppm = lr.get("local")
+    new_ppm = action_info.get("new") if action_info.get("new") is not None else current_ppm
+
+    did.append("- explicacao detalhada:")
+    if current_ppm is not None:
+        did.append(f"  taxa atual/local = {current_ppm} ppm.")
+    if new_ppm is not None and current_ppm is not None and new_ppm != current_ppm:
+        did.append(f"  taxa calculada para aplicar = {new_ppm} ppm.")
+    if metrics.get("alvo") is not None:
+        did.append(
+            f"  alvo bruto = {metrics['alvo']} ppm (seed + ajustes de liquidez/boosts)."
+        )
+    if metrics.get("seed") is not None:
+        did.append(
+            f"  seed Amboss = {metrics['seed']} ppm (preco de referencia do peer)."
+        )
+    if metrics.get("out_ratio") is not None:
+        pct = metrics["out_ratio"] * 100
+        did.append(
+            f"  out_ratio = {metrics['out_ratio']:.2f} (~{pct:.0f}%) indica saldo local relativo."
+        )
+    if metrics.get("out_ppm7d") is not None:
+        did.append(
+            f"  out_ppm7d = {metrics['out_ppm7d']} ppm (preco medio cobrado nos ultimos 7 dias)."
+        )
+    if metrics.get("rebal") is not None:
+        did.append(
+            f"  rebal_ppm7d = {metrics['rebal']} ppm representa custo medio de rebal."
+        )
+    if metrics.get("out_ppm7d") is not None and metrics.get("rebal") is not None:
+        if metrics["out_ppm7d"] < metrics["rebal"]:
+            did.append("  out_ppm7d < rebal_ppm7d sugere operacao no prejuizo.")
+        else:
+            did.append("  out_ppm7d >= rebal_ppm7d sugere margem positiva.")
+    if metrics.get("floor") is not None:
+        did.append(
+            f"  floor = {metrics['floor']} ppm e o piso de seguranca efetivo."
+        )
+        src_note = explain_floor_src(metrics.get("src"))
+        if src_note:
+            did.append(f"  {src_note}")
+    if metrics.get("marg") is not None:
+        if metrics["marg"] < 0:
+            did.append(
+                f"  marg = {metrics['marg']} ppm (margem 7d negativa, sinal de prejuizo)."
+            )
+        else:
+            did.append(
+                f"  marg = {metrics['marg']} ppm (margem 7d estimada)."
+            )
+    if metrics.get("rev_share") is not None:
+        share_pct = metrics["rev_share"] * 100
+        did.append(
+            f"  rev_share = {metrics['rev_share']:.2f} (~{share_pct:.1f}%) da receita de saida."
+        )
+    if current_ppm is not None and metrics.get("alvo") is not None:
+        if metrics["alvo"] > current_ppm:
+            did.append("  alvo acima da taxa atual -> sinal de alta.")
+        elif metrics["alvo"] < current_ppm:
+            did.append("  alvo abaixo da taxa atual -> sinal de baixa.")
+        else:
+            did.append("  alvo igual a taxa atual -> sinal neutro.")
+    if current_ppm is not None and metrics.get("floor") is not None:
+        if metrics["floor"] >= current_ppm:
+            did.append("  piso >= taxa atual -> queda travada pelo piso.")
+        else:
+            did.append("  piso abaixo da taxa atual -> sem travar a queda.")
+    if trf_info and current_ppm is not None:
+        did.append(
+            f"  debug t/r/f mostra o caminho do calculo: alvo {trf_info['t']} -> "
+            f"stepcap {trf_info['r']} -> piso {trf_info['f']}."
+        )
+    if tags:
+        top_signals = summarize_signals(tags)
+        if top_signals:
+            did.append(f"  sinais ativos: {', '.join(top_signals[:3])}.")
+    out.extend(did)
 
     return "\n".join(out)
 

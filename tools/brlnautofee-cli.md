@@ -49,10 +49,11 @@ Rodando:
 python3 tools/brlnautofee-cli.py autofee --text "Zap-O-Matic: set 1267->1270 ppm +3 (0.2%) | alvo 2086 | out_ratio 0.01 | out_ppm7d~1066 | rebal_ppm7d~870 | seed~356 p65:456 p95:516 | floor>=1270(outrate) | marg~144 | rev_share~0.01 | on sink bias+1.00 sink:1.00 seedcap:none med-blend vol-sigma/mu-15% ratiox0.99 p65:456 p95:516 stepcap floor-lock surge+28% t2086/r1457/f1270 | fee L/R 1267/1ppm"
 ```
 
-## Saida esperada (resumo)
+## Saida esperada (verbose por padrao)
 
 - alias, cid e acao (set/keep/dry).
 - metricas (alvo, out_ratio, out_ppm7d, rebal_ppm7d, seed, floor, marg, rev_share, fee L/R).
 - explicacao de tags conhecidas (floor-lock, stepcap, discovery, peg, etc).
+- debug t/r/f quando presente (t=alvo bruto, r=apos step cap/CB, f=floor).
+- explicacao detalhada do resultado, incluindo piso e sinais ativos.
 - notas adicionais (linhas didaticas como "previsao") se estiverem indentadas abaixo.
-
