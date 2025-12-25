@@ -8,6 +8,13 @@ from pathlib import Path
 LINE_HINTS = ("alvo", "out_ratio", "out_ppm7d", "rebal_ppm7d")
 
 
+def configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def read_input(args: argparse.Namespace) -> str:
     if args.text:
         return args.text
@@ -119,7 +126,7 @@ def parse_rebal(part: str) -> dict:
     suffix = None
     nums = parse_numbers(part)
     if nums:
-        num = int(nums[0])
+        num = int(nums[-1])
     m = re.search(r"\(([^)]+)\)", part)
     if m:
         suffix = m.group(1)
@@ -160,7 +167,7 @@ def parse_metrics(parts: list[str]) -> tuple[dict, list[str]]:
             metrics["out_ratio"] = float(nums[0]) if nums else None
         elif "out_ppm7d" in lower:
             nums = parse_numbers(part_stripped)
-            metrics["out_ppm7d"] = int(nums[0]) if nums else None
+            metrics["out_ppm7d"] = int(nums[-1]) if nums else None
         elif "rebal_ppm7d" in lower:
             metrics.update(parse_rebal(part_stripped))
         elif lower.startswith("seed"):
@@ -192,6 +199,8 @@ def is_tag_token(norm: str) -> bool:
         "hold-small",
         "cooldown",
         "global-neg-lock",
+        "lock-skip",
+        "sink-lucrativo-global-neg",
         "discovery",
         "new-inbound",
         "subprice",
@@ -215,6 +224,9 @@ def is_tag_token(norm: str) -> bool:
         "p65:",
         "p95:",
         "bias",
+        "med-blend",
+        "vol",
+        "ratio",
         "inb",
         "t",
         "on",
@@ -227,26 +239,35 @@ def is_tag_token(norm: str) -> bool:
     return any(key in norm for key in tag_keys)
 
 
-def extract_tags(line: str, unknown_parts: list[str]) -> list[str]:
+def extract_tags(line: str, unknown_parts: list[str]) -> tuple[list[str], list[str]]:
     candidates = []
+    collect_unknown = False
     if unknown_parts:
-        unknown_parts_sorted = sorted(unknown_parts, key=lambda s: -len(s.split()))
-        candidates = unknown_parts_sorted[0].split()
+        collect_unknown = True
+        for part in unknown_parts:
+            candidates.extend(part.split())
     else:
         candidates = line.split()
 
     tags = []
+    unknown = []
     for tok in candidates:
         norm = normalize_tag(tok)
+        if not norm:
+            continue
         if is_tag_token(norm):
             tags.append(tok)
-    return tags
+        elif collect_unknown and re.search(r"[a-z]", norm):
+            unknown.append(tok)
+    return tags, unknown
 
 
 def explain_tag(token: str) -> str | None:
     norm = normalize_tag(token)
     if not norm:
         return None
+    if "seedcap:none" in norm:
+        return "seedcap:none: seed sem limitacao por guard."
     if norm.startswith("floor-lock"):
         return "floor-lock: piso de seguranca travou o ajuste (protege custo de rebal ou outrate)."
     if norm.startswith("stepcap-lock"):
@@ -261,6 +282,10 @@ def explain_tag(token: str) -> str | None:
         return "cooldown: janela minima entre mudancas ainda ativa."
     if norm.startswith("global-neg-lock"):
         return "global-neg-lock: margem global negativa, quedas travadas."
+    if norm.startswith("lock-skip"):
+        return "lock-skip: lock global ignorado por falta de base de custo por canal."
+    if norm.startswith("sink-lucrativo-global-neg"):
+        return "sink-lucrativo-global-neg: excecao ao lock global negativo para sink lucrativo."
     if norm.startswith("discovery"):
         return "discovery: modo discovery ativo (canal ocioso com outbound alto)."
     if norm.startswith("explorer"):
@@ -298,7 +323,13 @@ def explain_tag(token: str) -> str | None:
     if norm.startswith("p65:") or norm.startswith("p95:"):
         return "p65/p95: percentil Amboss usado como referencia."
     if norm.startswith("bias"):
-        return "bias: viEs EMA do fluxo (debug de classificacao)."
+        return "bias: vies EMA do fluxo (debug de classificacao)."
+    if norm.startswith("med-blend"):
+        return "med-blend: seed hibrido com mediana (mais robusto)."
+    if norm.startswith("vol"):
+        return "vol: penalidade por volatilidade (sigma/mu)."
+    if norm.startswith("ratio"):
+        return "ratio: ajuste do seed pelo ratio outgoing/incoming."
     if norm.startswith("sink"):
         return "sink: canal classificado como sink (tende a receber mais)."
     if norm.startswith("source"):
@@ -314,6 +345,40 @@ def explain_tag(token: str) -> str | None:
     if re.match(r"t\d+/r\d+/f\d+$", norm):
         return "t/r/f: debug do alvo (t), raw (r) e floor (f)."
     return None
+
+
+def summarize_signals(tags: list[str]) -> list[str]:
+    norms = [normalize_tag(t) for t in tags]
+    signals = []
+    if any("floor-lock" in n for n in norms):
+        signals.append("piso travou o ajuste")
+    if any("stepcap-lock" in n for n in norms):
+        signals.append("step cap segurou a mudanca")
+    if any(n.startswith("cooldown") for n in norms):
+        signals.append("cooldown ativo")
+    if any("hold-small" in n for n in norms):
+        signals.append("mudanca pequena demais (anti micro-update)")
+    if any("no-down-low" in n for n in norms):
+        signals.append("queda bloqueada por outbound baixo")
+    if any("global-neg-lock" in n for n in norms):
+        signals.append("margem global negativa")
+    if any("sink-lucrativo-global-neg" in n for n in norms):
+        signals.append("excecao ao lock global (sink lucrativo)")
+    if any(n.startswith("surge+") for n in norms):
+        signals.append("boost de demanda (surge)")
+    if any(n.startswith("top+") for n in norms):
+        signals.append("boost por receita alta (top)")
+    if any(n.startswith("negm+") for n in norms):
+        signals.append("boost por margem negativa")
+    if any(n.startswith("discovery") for n in norms):
+        signals.append("discovery ativo")
+    if any(n.startswith("explorer") for n in norms):
+        signals.append("explorer ativo")
+    if any(n.startswith("new-inbound") for n in norms):
+        signals.append("novo inbound (normalizacao)")
+    if any(n.startswith("peg") for n in norms):
+        signals.append("peg ativo (preco observado)")
+    return signals
 
 
 def explain_floor_src(src: str | None) -> str | None:
@@ -352,31 +417,43 @@ def format_output(line: str, followup: list[str]) -> str:
     parts = [p.strip() for p in line.split("|")]
     header = parse_header(parts[0])
     metrics, unknown_parts = parse_metrics(parts[1:])
-    tags = extract_tags(line, unknown_parts)
+    tags, unknown_tags = extract_tags(line, unknown_parts)
 
     out = []
-    out.append("AutoFee channel decode")
+    out.append("AutoFee decode (canal)")
     if header.get("alias"):
         out.append(f"- alias: {header['alias']}")
     if header.get("cid"):
         out.append(f"- cid: {header['cid']}")
     if header.get("action"):
         action = header["action"]
-        out.append(f"- action: {action}")
+        out.append(f"- acao: {action}")
 
         m = re.search(r"(\\d+)\\s*(?:->|\\u2192)\\s*(\\d+)", action)
         if m:
             old = int(m.group(1))
             new = int(m.group(2))
             delta = new - old
-            out.append(f"- change: {old} -> {new} ppm (delta {delta:+d})")
+            out.append(f"- mudanca: {old} -> {new} ppm (delta {delta:+d})")
+            if delta > 0:
+                out.append("- resultado: subiu a taxa (aplicou aumento).")
+            elif delta < 0:
+                out.append("- resultado: reduziu a taxa (aplicou queda).")
+            else:
+                out.append("- resultado: manteve a taxa (sem mudanca).")
+        else:
+            action_lower = action.lower()
+            if "mant" in action_lower:
+                out.append("- resultado: manteve a taxa (sem mudanca aplicada).")
+        if "dry" in action.lower() or "excl-dry" in action.lower():
+            out.append("- modo: dry-run/simulacao (nao aplicou mudanca real).")
 
     if "alvo" in metrics:
-        out.append(f"- alvo: {metrics['alvo']} ppm (target before step cap and floor)")
+        out.append(f"- alvo: {metrics['alvo']} ppm (target bruto antes de step cap e piso)")
     if "out_ratio" in metrics:
-        out.append(f"- out_ratio: {metrics['out_ratio']:.2f} (local balance / capacity)")
+        out.append(f"- out_ratio: {metrics['out_ratio']:.2f} (saldo local / capacidade)")
     if "out_ppm7d" in metrics:
-        out.append(f"- out_ppm7d: {metrics['out_ppm7d']} ppm (avg outgoing fee, 7d)")
+        out.append(f"- out_ppm7d: {metrics['out_ppm7d']} ppm (media de fee de saida, 7d)")
     if "rebal" in metrics:
         out.append(f"- rebal_ppm7d: {metrics['rebal']} ppm")
         note = explain_rebal_suffix(metrics.get("suffix"))
@@ -392,14 +469,14 @@ def format_output(line: str, followup: list[str]) -> str:
             seed_line += " (cap)"
         out.append(seed_line)
     if "floor" in metrics:
-        out.append(f"- floor: {metrics['floor']} ppm")
+        out.append(f"- floor: {metrics['floor']} ppm (piso final aplicado)")
         src_note = explain_floor_src(metrics.get("src"))
         if src_note:
             out.append(f"  {src_note}")
     if "marg" in metrics:
-        out.append(f"- marg: {metrics['marg']} ppm (out_ppm7d minus cost w/ margin)")
+        out.append(f"- marg: {metrics['marg']} ppm (margem 7d estimada)")
     if "rev_share" in metrics:
-        out.append(f"- rev_share: {metrics['rev_share']:.2f} (share of total out fee)")
+        out.append(f"- rev_share: {metrics['rev_share']:.2f} (participacao na receita de saida)")
     if "fee_lr" in metrics:
         lr = metrics["fee_lr"]
         if lr.get("local") is not None and lr.get("remote") is not None:
@@ -407,7 +484,7 @@ def format_output(line: str, followup: list[str]) -> str:
     if "inb" in metrics:
         inb = metrics["inb"]
         if inb.get("prev") is not None and inb.get("cur") is not None:
-            line_inb = f"- inbound discount: {inb['prev']} -> {inb['cur']} ppm"
+            line_inb = f"- desconto inbound: {inb['prev']} -> {inb['cur']} ppm"
             if inb.get("net") is not None:
                 line_inb += f" (net {inb['net']} ppm)"
             out.append(line_inb)
@@ -420,15 +497,20 @@ def format_output(line: str, followup: list[str]) -> str:
             if note and note not in explained:
                 out.append(f"  {note}")
                 explained.add(note)
-        unknown = []
-        for tag in tags:
-            if explain_tag(tag) is None:
-                unknown.append(tag)
-        if unknown:
-            out.append(f"  unrecognized: {' '.join(unknown)}")
+        if unknown_tags:
+            unique = []
+            seen = set()
+            for tag in unknown_tags:
+                if tag not in seen:
+                    unique.append(tag)
+                    seen.add(tag)
+            out.append(f"  tags nao reconhecidas: {' '.join(unique)}")
+        signals = summarize_signals(tags)
+        if signals:
+            out.append(f"- sinais: {'; '.join(signals[:5])}.")
 
     if followup:
-        out.append("- script notes:")
+        out.append("- notas do script:")
         for line in followup:
             out.append(f"  {line}")
 
@@ -460,6 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    configure_stdout()
     parser = build_parser()
     args = parser.parse_args()
     args.func(args)
