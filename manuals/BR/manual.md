@@ -47,7 +47,7 @@
   `OVERRIDES_PATH = '/home/admin/lndtools/autofee_overrides.json'`
   (apenas chaves já existentes são aplicadas)
 
-### 2.3. Limites/base
+### 2.3. Limites/base (Importante)
 
 * `MIN_PPM = 100` | `MAX_PPM = 2000` (clamp final)
 * `COLCHAO_PPM = 25`
