@@ -16,7 +16,7 @@ Tudo isso com **mensagens no Telegram** (inclui status de AR ON/OFF) e **log loc
 
 1. **Coleta dados** dos canais via LNDg (capacidade, saldos, taxas locais/remotas, estado do AR, targets etc.).
 2. **Calcula outbound global** (referência para targets por canal).
-3. **Lê custos de rebal 7d** no SQLite do LNDg (por canal e global).
+3. **Lê custos de rebal 7d** no SQLite do LNDg (por canal e global) e usa o ultimo custo memorizado no state quando nao houver amostra.
 4. **Carrega o state/cache do AutoFee** (classe do canal, baseline de forwards, `bias_ema`, *cooldown* de liga/desliga).
 5. **Define targets** (out/in) por canal:
 
@@ -26,7 +26,8 @@ Tudo isso com **mensagens no Telegram** (inclui status de AR ON/OFF) e **log loc
 6. **Aplica gates**:
 
    * **price-gate** (sanidade de preço vs `ar_max_cost`);
-   * **lucratividade** (margem L−R vs custo 7d com *safety*).
+   * **lucratividade** (margem L−R vs custo_base com *safety*).
+   * **roi-cap** (custo_base <= frac * preco_ref).
 7. **Histerese & decisão**:
 
    * liga/desliga com banda de **±5pp**;
@@ -49,20 +50,30 @@ Tudo isso com **mensagens no Telegram** (inclui status de AR ON/OFF) e **log loc
 * `CACHE_PATH`, `STATE_PATH` – *state* do AutoFee & cooldowns.
 * `AUTO_FEE_FILE`, `AUTO_FEE_PARAMS_CACHE` – origem e cache de parâmetros do AutoFee.
 * `LOG_PATH` – log local (um JSON por linha).
+* `VERSIONS_FILE` – primeira linha útil define a versão exibida no header do Telegram (se ausente, usa 0.0.0).
 
 ### Limites e lógica
 
 * `HYSTERESIS_PP = 5` – banda para ligar/desligar sem oscilar.
 * `OUT_TARGET_MIN = 10`, `OUT_TARGET_MAX = 90` – guarda-chuva de segurança.
-* `REBAL_SAFETY = 1.05` e `BREAKEVEN_BUFFER = 0.03` – folga de custo 7d.
-* `AR_PRICE_BUFFER = 0.10` – price-gate: precisa cobrir remota com +10%.
-* `MIN_REBAL_VALUE_SAT = 400_000`, `MIN_REBAL_COUNT = 3` – só confia custo 7d do **canal** se houver amostra mínima; senão usa **global**.
-* `MIN_DWELL_HOURS = 2` – cooldown para trocar ON/OFF.
-* `CLASS_BIAS` – viés por classe (em **fração**, ex.: `+0.12`= +12pp).
-* `BIAS_MAX_PP = 12` – teto do viés dinâmico (a partir de `bias_ema`).
-* `BIAS_HARD_CLAMP_PP = 20` – trava dura de segurança (pp).
+* `REBAL_SAFETY = 1.05` e `BREAKEVEN_BUFFER = 0.03` – folga de custo 7d; maior = mais conservador, menor = mais permissivo.
+* `AR_PRICE_BUFFER = 0.10` – price-gate: precisa cobrir remota com +10%; maior = mais conservador.
+* `LOOKBACK_DAYS = 7` – janela de custo rebal no SQLite; maior suaviza e reage mais lento, menor responde mais rapido.
+* `MIN_REBAL_VALUE_SAT = 400_000`, `MIN_REBAL_COUNT = 3` – apenas rotulo/telemetria de custo por canal; os gates usam custo_base (rebal7d/last_rebal_cost_ppm) sem fallback global.
+* `MIN_DWELL_HOURS = 1` – cooldown para trocar ON/OFF; maior reduz flapping, 0 desativa.
+* `FAST_OFF_ENABLE = True` – permite desligar ignorando cooldown quando acima do alvo+his ou gates falham; False = sempre respeita cooldown.
+* `KILL_SWITCH_ENABLE = True` – permite quebrar fill-lock em condicoes extremas; False = nunca libera fill-lock.
+* `KILL_COST_PPM = 1500` – custo_base acima disso libera fill-lock; maior = mais tolerante, menor = corta perdas mais cedo.
+* `KILL_PRICE_HARD = True` – se True, price-gate reprovado durante fill-lock libera OFF; se False, apenas custo.
+* `ROI_CAP_FRAC_DEFAULT = 0.70` – limite custo_base vs preco; maior = mais permissivo, menor = mais conservador.
+* `ROI_CAP_FRAC_BY_CLASS` – overrides por classe (ex.: sink 0.85); valores maiores liberam mais AR na classe.
+* `ROI_SINK_BASELINE_MIN = 50` – so aplica ROI de sink se baseline >= isso; maior exige mais demanda.
+* `ROI_USE_LOCAL_WHEN_DRAINED = True`, `ROI_DRAIN_OUT_MAX = 0.12` – se drenado usa preco=local_ppm; aumentar `ROI_DRAIN_OUT_MAX` torna o modo mais frequente.
+* `CLASS_BIAS` – vies por classe (em **fracao**, ex.: `+0.12`= +12pp); maior vies = target mais agressivo.
+* `BIAS_MAX_PP = 12` – teto do vies dinamico (a partir de `bias_ema`); maior = mais influencia.
+* `BIAS_HARD_CLAMP_PP = 20` – trava dura de seguranca (pp).
 * `EXCLUSION_LIST` – lista de canais ignorados.
-* `FORCE_SOURCE_LIST` – força “source” em casos especiais.
+* `FORCE_SOURCE_LIST` – forca “source” em casos especiais.
 
 ### Bônus por demanda
 
@@ -71,6 +82,12 @@ Tudo isso com **mensagens no Telegram** (inclui status de AR ON/OFF) e **log loc
 * **+8pp** se baseline ≥ 150;
 * **+4pp** se baseline ≥ 50;
 * **+0pp** caso contrário.
+
+### Parametros do AutoFee (lidos do arquivo/cache)
+
+* `LOW_OUTBOUND_THRESH` – limiar de religa (OFF -> ON) quando drenado; maior liga mais cedo, menor exige mais drenagem.
+* `HIGH_OUTBOUND_THRESH`, `LOW_OUTBOUND_BUMP`, `HIGH_OUTBOUND_CUT`, `IDLE_EXTRA_CUT` – carregados para log/futuro; hoje nao alteram a decisao do AR Trigger.
+* Se `AUTO_FEE_FILE`/cache falhar, usa defaults: 0.05, 0.20, 0.01, 0.01, 0.005.
 
 ---
 
@@ -93,18 +110,21 @@ out_target = clamp(
 
 **fill-lock**: se o AR está **ON** e `out_ratio` < `out_target`, ele **mantém ON** e trava o alvo até atingir a meta (ignora price-gate/custo enquanto estiver enchendo).
 
+**kill-switch**: se `KILL_SWITCH_ENABLE` e custo_base >= `KILL_COST_PPM` (ou price-gate falhar com `KILL_PRICE_HARD`), o fill-lock pode ser liberado para permitir OFF.
+
 ---
 
 ## Decisão de ligar/desligar (histerese)
 
 * **ON → OFF** se:
 
-  * `out_ratio ≥ target + 5pp` **e** lucro OK, **ou**
-  * **não lucrativo** (margem < custo 7d ajustado).
+  * `price-gate` reprovado, **ou**
+  * `out_ratio ≥ target + 5pp` **e** lucro/roi OK, **ou**
+  * **nao lucrativo/roi-cap reprovado**.
 * **OFF → ON** se:
 
-  * `out_ratio ≤ LOW_OUTBOUND_THRESH` (do AutoFee) **e** lucrativo.
-* Caso contrário: **mantém** estado, respeitando o **cooldown** de 2h.
+  * `out_ratio ≤ LOW_OUTBOUND_THRESH` (do AutoFee) **e** price-gate OK **e** lucro/roi OK.
+* Caso contrario: **mantem** estado, respeitando o **cooldown** de `MIN_DWELL_HOURS` (com *fast-off* opcional).
 
 > **source**: nunca liga (policy).
 
@@ -122,15 +142,27 @@ local_ppm * (ar_max_cost/100) ≥ remote_ppm * (1 + AR_PRICE_BUFFER)
 
 Padrão: **AR_PRICE_BUFFER = 10%**.
 
-### Lucratividade (contra custo 7d)
+### Lucratividade (contra custo base)
 
 ```
 margin_ppm = max(0, local_ppm - remote_ppm)
-need_ppm   = ceil( cost_7d * REBAL_SAFETY ) * (1 + BREAKEVEN_BUFFER)
+need_ppm   = ceil( custo_base * REBAL_SAFETY ) * (1 + BREAKEVEN_BUFFER)
 lucro OK   = margin_ppm ≥ need_ppm
 ```
 
-* Usa **custo por canal** se amostra ≥ `MIN_REBAL_VALUE_SAT` e `MIN_REBAL_COUNT`; senão **global**.
+* `custo_base` = rebal7d do canal (janela `LOOKBACK_DAYS`) ou `last_rebal_cost_ppm` no state (~21d).
+* Sem `custo_base` (0), o gate considera OK (nao bloqueia).
+
+### ROI-cap (custo vs preco)
+
+```
+custo_base <= ROI_CAP_FRAC * preco_ref
+```
+
+* `ROI_CAP_FRAC` = `ROI_CAP_FRAC_BY_CLASS[classe]` (fallback `ROI_CAP_FRAC_DEFAULT`).
+* `preco_ref` = `min(local_ppm, seed_last)`; se `ROI_USE_LOCAL_WHEN_DRAINED` e `out_ratio < ROI_DRAIN_OUT_MAX`, usa `local_ppm`.
+* Para `sink`, o `ROI_CAP_FRAC_BY_CLASS` so vale quando `baseline >= ROI_SINK_BASELINE_MIN`.
+* Sem `custo_base` (0), considera OK.
 
 ---
 
@@ -199,7 +231,7 @@ Cada ação gera um JSON no `LOG_PATH`, por exemplo:
 
 * **Exclusion list**: use para canais que não quer que o script toque.
 * **Monitore** os *mudanças* e o **rebal7d≈**; variações grandes podem indicar ruído.
-* **Amostra**: se o custo 7d por canal não tiver amostra mínima, não confie nele – o script cai no custo **global** automaticamente.
+* **Amostra**: `MIN_REBAL_VALUE_SAT`/`MIN_REBAL_COUNT` so afeta o rotulo de custo por canal nos logs; gates usam `rebal7d` ou `last_rebal_cost_ppm` (sem fallback global).
 
 ---
 
@@ -223,7 +255,7 @@ Tudo ok! Pode ocorrer se todos os canais estiverem dentro da histerese e sem tri
 ## FAQ
 
 **1) Por que às vezes ele não liga mesmo drenado?**
-Porque precisa passar por **dois gates**: *price-gate* **e** *lucratividade* (margem ≥ custo 7d com folga). Se qualquer um falhar, fica OFF.
+Porque precisa passar por **tres gates**: *price-gate*, *lucratividade* e *roi-cap* (custo_base vs preco). Se qualquer um falhar, fica OFF.
 
 **2) Por que o alvo subiu sozinho?**
 **cap-lock**. Evita que um SINK recém-enchido se torne **fonte** de rebal só porque o método de target mudou e reduziria o alvo.
