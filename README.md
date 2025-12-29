@@ -64,6 +64,13 @@ python3 -m brln_orchestrator set-secret \
 
 * Caso não utilize Telegram, omita os parâmetros correspondentes.
 
+## Agente explicador do Telegram (AutoFee)
+
+Use este agente para interpretar e resumir as mensagens do Telegram geradas pelo AutoFee e pelo orquestrador:
+[BR LN AutoFee Explicador](https://chatgpt.com/g/g-6952866d52d88191b099fdf114f3cd42-br-ln-autofee-explicador)
+
+Cole o output do bot no agente para obter uma explicacao mais clara.
+
 ## LND REST API (Recomendado)
 
 Por padrão, o orquestrador usa o `bos` (Balance of Satoshis) para atualizar taxas dos canais. Cada chamada ao `bos` abre um novo processo e uma nova conexão com o LND, o que pode sobrecarregar o PostgreSQL se o LND usar esse backend.
