@@ -38,6 +38,7 @@ class ARTriggerEngine:
         self.telegram = telegram
         self.legacy = _load_legacy(legacy_path)
         self._legacy_load_autofee_params = None
+        self._autofee_param_overrides: Dict[str, float] = {}
         self._dry_run = False
         self._pending_updates: list[tuple[str, Dict[str, Any]]] = []
         self._captured_messages: list[str] = []
@@ -80,12 +81,18 @@ class ARTriggerEngine:
     def _load_autofee_params(self) -> Dict[str, Any]:
         # Fallback to legacy JSON store if present
         params = self.storage.load_json("legacy_autofee_params", None)
-        if params is not None:
+        if params is None:
+            original = self._legacy_load_autofee_params
+            params = original() if original else {}
+            self.storage.save_json("legacy_autofee_params", params)
+        if not isinstance(params, dict):
+            params = {}
+        overrides = self._autofee_param_overrides or {}
+        if not overrides:
             return params
-        original = self._legacy_load_autofee_params
-        data = original() if original else {}
-        self.storage.save_json("legacy_autofee_params", data)
-        return data
+        merged = dict(params)
+        merged.update(overrides)
+        return merged
 
     def _patch_rebal_sql(self) -> None:
         secrets = self.storage.get_secrets()
@@ -188,9 +195,25 @@ class ARTriggerEngine:
 
     def _apply_mode_presets(self, mode: str, legacy) -> None:
         presets = get_mode_presets(mode)
+        autofee_preset = presets.get("autofee", {})
+        param_names = set(getattr(legacy, "AF_PARAM_NAMES", ()))
+        if not param_names:
+            param_names = {
+                "LOW_OUTBOUND_THRESH",
+                "HIGH_OUTBOUND_THRESH",
+                "LOW_OUTBOUND_BUMP",
+                "HIGH_OUTBOUND_CUT",
+                "IDLE_EXTRA_CUT",
+            }
+        overrides: Dict[str, float] = {}
+        for key, value in autofee_preset.items():
+            if key not in param_names:
+                continue
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                overrides[key] = float(value)
+        self._autofee_param_overrides = overrides
+
         ar_preset = presets.get("ar", {})
-        if not ar_preset:
-            return
         for attr, value in ar_preset.items():
             if not hasattr(legacy, attr):
                 continue
