@@ -176,6 +176,69 @@ class AutoFeeEngine:
     def _bos_set_fee(self, pubkey: str, ppm: int, dry_run: bool) -> None:
         self._bos_set_fees(pubkey, ppm, None, dry_run)
 
+    def _lncli_updatechanpolicy(
+        self,
+        chan_point: str,
+        ppm: int,
+        inbound_discount_ppm: Optional[int],
+        dry_run: bool,
+    ) -> None:
+        inbound_fee_rate_ppm = None
+        if inbound_discount_ppm is not None:
+            inbound_fee_rate_ppm = -max(0, int(inbound_discount_ppm))
+        base_fee_msat = int(getattr(self.legacy, "BASE_FEE_MSAT", 0) or 0)
+        time_lock_delta = int(getattr(self.legacy, "TIME_LOCK_DELTA", 144) or 144)
+        self.lncli.updatechanpolicy(
+            chan_point,
+            ppm,
+            base_fee_msat=base_fee_msat,
+            time_lock_delta=time_lock_delta,
+            inbound_fee_rate_ppm=inbound_fee_rate_ppm,
+            inbound_base_fee_msat=0,
+            dry_run=dry_run,
+        )
+
+    def _set_channel_fees(
+        self,
+        pubkey: Optional[str],
+        chan_point: Optional[str],
+        ppm: int,
+        inbound_discount_ppm: Optional[int],
+        dry_run: bool,
+    ) -> str:
+        if isinstance(self.bos, LndRestService):
+            if chan_point:
+                self.bos.set_fee_by_chan_point(
+                    chan_point,
+                    ppm,
+                    inbound_discount_ppm=inbound_discount_ppm,
+                    dry_run=dry_run,
+                )
+                return "REST"
+            if not pubkey:
+                raise ValueError("pubkey ou chan_point obrigatorio para REST")
+            self.bos.set_fee(pubkey, ppm, inbound_discount_ppm=inbound_discount_ppm, dry_run=dry_run)
+            return "REST"
+
+        use_lncli = bool(getattr(self.legacy, "USE_LNCLI_UPDATECHANPOLICY", True))
+        if use_lncli and chan_point:
+            self._lncli_updatechanpolicy(chan_point, ppm, inbound_discount_ppm, dry_run)
+            return "LNCLI"
+        if not pubkey:
+            raise ValueError("pubkey ou chan_point obrigatorio para aplicar fees")
+        self.bos.set_fee(pubkey, ppm, inbound_discount_ppm=inbound_discount_ppm, dry_run=dry_run)
+        return "BOS"
+
+    def _fee_update_method(self, pubkey: Optional[str], chan_point: Optional[str]) -> str:
+        if isinstance(self.bos, LndRestService):
+            return "REST"
+        use_lncli = bool(getattr(self.legacy, "USE_LNCLI_UPDATECHANPOLICY", True))
+        if use_lncli and chan_point:
+            return "LNCLI"
+        if pubkey:
+            return "BOS"
+        return "UNKNOWN"
+
     def _tg_send(self, text: str) -> None:
         if not text:
             return
@@ -258,6 +321,8 @@ class AutoFeeEngine:
         legacy.listchannels_snapshot = self._listchannels_snapshot  # type: ignore
         legacy.bos_set_fees = lambda pubkey, ppm_value, inbound_discount_ppm=None: self._bos_set_fees(pubkey, ppm_value, inbound_discount_ppm, dry_run)  # type: ignore
         legacy.bos_set_fee_ppm = lambda pubkey, ppm_value: self._bos_set_fees(pubkey, ppm_value, None, dry_run)  # type: ignore
+        legacy.set_channel_fees = lambda pubkey, chan_point, ppm_value, inbound_discount_ppm=None: self._set_channel_fees(pubkey, chan_point, ppm_value, inbound_discount_ppm, dry_run)  # type: ignore
+        legacy.fee_update_method = lambda pubkey, chan_point: self._fee_update_method(pubkey, chan_point)  # type: ignore
         legacy.tg_send_big = self._tg_send  # type: ignore
         legacy.read_version_info = self._read_version_info  # type: ignore
         legacy.run = self._run_command  # type: ignore

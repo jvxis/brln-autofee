@@ -6,7 +6,7 @@ Coordenador em **Python** que integra os scripts legados `brln-autofee.py`, `lnd
 
 * Python 3.11 ou superior
 * `lncli` instalado no PATH (ou caminho absoluto)
-* `bos` instalado **OU** LND REST API habilitada (recomendado)
+* `bos` instalado (legado, fallback) **OU** LND REST API habilitada (recomendado)
 * Node LND com LNDg (API HTTP e banco SQLite acessíveis)
 * Conta Amboss com token GraphQL
 * Opcional: bot do Telegram para notificações
@@ -63,6 +63,7 @@ python3 -m brln_orchestrator set-secret \
 ```
 
 * Caso não utilize Telegram, omita os parâmetros correspondentes.
+* `bos` ficou como legado e so entra como fallback quando nao ha `chan_point` disponivel.
 
 ## Agente explicador do Telegram (AutoFee)
 
@@ -73,17 +74,17 @@ Cole o output do bot no agente para obter uma explicacao mais clara.
 
 ## LND REST API (Recomendado)
 
-Por padrão, o orquestrador usa o `bos` (Balance of Satoshis) para atualizar taxas dos canais. Cada chamada ao `bos` abre um novo processo e uma nova conexão com o LND, o que pode sobrecarregar o PostgreSQL se o LND usar esse backend.
+Por padrão, o orquestrador usa `lncli updatechanpolicy` por canal (via `chan_point`). O `bos` ficou como fallback legado quando não há `chan_point`.
 
-A **LND REST API** resolve esse problema usando uma **sessão HTTP persistente** (keep-alive), reutilizando a mesma conexão para todas as atualizações.
+** IMPORTANTE PARA NODES COM POSTGRESQL ** A **LND REST API** resolve esse problema usando uma **sessão HTTP persistente** (keep-alive), reutilizando a mesma conexão para todas as atualizões e permitindo múltiplos canais por peer.
 
 ### Benefícios
 
-| BOS (padrão) | REST API |
+| LNCLI (padrão) | REST API |
 |--------------|----------|
 | 1 processo por canal | 1 sessão HTTP reutilizada |
 | Cada processo abre conexão LND→PostgreSQL | Uma conexão persistente |
-| Overhead de Node.js | Python nativo |
+| Overhead de CLI | Python nativo |
 
 ### Configuração
 
@@ -98,7 +99,7 @@ python3 -m brln_orchestrator set-secret \
 * `--lnd-rest-host`: Host e porta da REST API do LND (padrão: `localhost:8080`)
 * `--lnd-macaroon-path`: Caminho do `admin.macaroon` (padrão: `~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon`)
 * `--lnd-tls-cert-path`: Caminho do `tls.cert` (padrão: `~/.lnd/tls.cert`)
-* `--use-lnd-rest 1`: Ativa a REST API (use `0` para voltar ao BOS)
+* `--use-lnd-rest 1`: Ativa a REST API (use `0` para voltar ao LNCLI)
 
 ### Verificar porta REST do LND
 

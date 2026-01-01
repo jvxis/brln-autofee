@@ -17,7 +17,9 @@ logger = get_logger("autofee")
 # ========== CONFIG ==========
 DB_PATH = '/home/admin/lndg/data/db.sqlite3'   # ajuste se necessario
 LNCLI   = "lncli"
-BOS     = "/home/admin/.npm-global/lib/node_modules/balanceofsatoshis/bos"
+BOS     = "/home/admin/.npm-global/lib/node_modules/balanceofsatoshis/bos"  # legado, fallback
+USE_LNCLI_UPDATECHANPOLICY = True
+TIME_LOCK_DELTA = 144
 
 # Amboss (HARD-CODE p/ testes)
 AMBOSS_TOKEN = ""  # <<< PREENCHER
@@ -173,7 +175,7 @@ NEG_MARGIN_SURGE_ENABLE = True
 NEG_MARGIN_SURGE_BUMP   = 0.05
 NEG_MARGIN_MIN_FWDS     = 5
 
-# 4) Evitar “micro-updates” no BOS (MAIS DURO p/ 1h)
+# 4) Evitar “micro-updates” na policy (MAIS DURO p/ 1h)
 BOS_PUSH_MIN_ABS_PPM   = 15     # ↑
 BOS_PUSH_MIN_REL_FRAC  = 0.04   # ↑
 
@@ -305,7 +307,7 @@ INBOUND_FEE_MIN_MARGIN_PPM      = 200    # margem 7d mínima para começar a dar
 INBOUND_FEE_SHARE_OF_MARGIN     = 0.30   # % da margem em ppm que vira desconto (30%)
 INBOUND_FEE_MAX_FRAC_LOCAL      = 0.90   # desconto nunca passa de 90% da taxa local
 INBOUND_FEE_MIN_OVER_REBAL_FRAC = 1.002   # net_fee >= 1.002 * custo_rebal (protege o custo)
-INBOUND_FEE_PUSH_MIN_ABS_PPM    = 10     # só reenviar BOS se mudar pelo menos isso
+INBOUND_FEE_PUSH_MIN_ABS_PPM    = 10     # só reenviar policy se mudar pelo menos isso
 # Desconto especial para sinks MUITO drenados sem rebal 7d real
 INBOUND_FEE_DRAINED_NO_REBAL_ENABLE   = True    # liga/desliga esse modo
 INBOUND_FEE_DRAINED_OUT_RATIO_MAX     = 0.05    # considera "muito drenado" se outbound < 5%
@@ -1040,7 +1042,7 @@ def seed_with_guard(pubkey, cache, state, cid):
 
     return float(seed), float(raw_p65), (float(p95) if p95 is not None else None), flags
 
-# ========== BOS ==========
+# ========== BOS (LEGADO) ==========
 def bos_set_fees(to_pubkey, out_ppm, inbound_discount_ppm=None):
     """
     Seta a fee de saída e, opcionalmente, o rebate de inbound (discount).
@@ -1052,6 +1054,7 @@ def bos_set_fees(to_pubkey, out_ppm, inbound_discount_ppm=None):
         inb_v = max(0, int(round(inbound_discount_ppm)))
         cmd += f' --set-inbound-rate-discount {inb_v}'
     run(cmd)
+    return "BOS"
 
 
 def bos_set_fee_ppm(to_pubkey, ppm_value):
@@ -1059,6 +1062,41 @@ def bos_set_fee_ppm(to_pubkey, ppm_value):
     Backward-compat: mantém quem já chama só set-fee-rate.
     """
     bos_set_fees(to_pubkey, ppm_value, None)
+
+def lncli_set_fees(chan_point, out_ppm, inbound_discount_ppm=None):
+    """
+    Atualiza policy via lncli por chan_point (permite fees por canal).
+    """
+    if not chan_point:
+        raise ValueError("chan_point obrigatorio para lncli updatechanpolicy")
+    out_v = clamp_ppm(int(round(out_ppm)))
+    cmd = (
+        f"{LNCLI} updatechanpolicy"
+        f" --base_fee_msat {int(BASE_FEE_MSAT)}"
+        f" --time_lock_delta {int(TIME_LOCK_DELTA)}"
+        f" --fee_rate_ppm {out_v}"
+        f" --inbound_base_fee_msat 0"
+        f" --chan_point {chan_point}"
+    )
+    if inbound_discount_ppm is not None:
+        inb_v = -abs(int(round(inbound_discount_ppm)))
+        cmd += f" --inbound_fee_rate_ppm {inb_v}"
+    run(cmd)
+    return "LNCLI"
+
+def set_channel_fees(pubkey, chan_point, out_ppm, inbound_discount_ppm=None):
+    if USE_LNCLI_UPDATECHANPOLICY and chan_point:
+        return lncli_set_fees(chan_point, out_ppm, inbound_discount_ppm)
+    if not pubkey:
+        raise ValueError("pubkey obrigatorio para aplicar fees via bos")
+    return bos_set_fees(pubkey, out_ppm, inbound_discount_ppm)
+
+def fee_update_method(pubkey, chan_point):
+    if USE_LNCLI_UPDATECHANPOLICY and chan_point:
+        return "LNCLI"
+    if pubkey:
+        return "BOS"
+    return "UNKNOWN"
 
 # ========== STATE ==========
 def get_state():
@@ -1687,6 +1725,7 @@ def main(dry_run=False):
         #    live_info = live_by_cid.get(cid)
 
         pubkey = (live_info or {}).get("remote_pubkey") or meta.get("remote_pubkey")
+        chan_point = (live_info or {}).get("chan_point") or meta.get("chan_point")
         if not pubkey:
             unmatched += 1
 
@@ -2610,7 +2649,7 @@ def main(dry_run=False):
                 if DEBUG_TAGS:
                     all_tags.append(f"ⓘinb:{inbound_reason}")
 
-        # delta do inbound (para saber se vale a pena empurrar pro BOS)
+        # delta do inbound (para saber se vale a pena aplicar update)
         inbound_delta = abs(inbound_discount_ppm - prev_inb_discount)
         inbound_push_needed = (
             INBOUND_FEE_ENABLE and
@@ -2793,7 +2832,9 @@ def main(dry_run=False):
                     if new_ppm > local_ppm: excl_dry_up += 1
                     else: excl_dry_down += 1
                 else:
-                    action = f"DRY set {local_ppm}→{new_ppm} ppm {dstr}"
+                    method_label = fee_update_method(pubkey, chan_point)
+                    method_tag = f" ({method_label})" if method_label else ""
+                    action = f"DRY set {local_ppm}→{new_ppm} ppm{method_tag} {dstr}"
                     new_dir = dir_for_emoji
                     excl_note = " 🚷excl-dry" if is_excluded else ""
                     # 👉 conta mudança de inbound (qualquer alteração, mesmo com outbound)
@@ -2849,13 +2890,14 @@ def main(dry_run=False):
                             kept += 1   # outbound igual, mudamos só inbound
             else:
                 try:
-                    if pubkey:
+                    if pubkey or chan_point:
                         if INBOUND_FEE_ENABLE:
-                            bos_set_fees(pubkey, final_ppm, inbound_discount_ppm)
+                            method_label = set_channel_fees(pubkey, chan_point, final_ppm, inbound_discount_ppm)
                         else:
                             # comportamento antigo: só setar out_ppm
-                            bos_set_fees(pubkey, final_ppm, None)
-                        action = f"set {local_ppm}→{new_ppm} ppm {dstr}"
+                            method_label = set_channel_fees(pubkey, chan_point, final_ppm, None)
+                        method_tag = f" ({method_label})" if method_label else ""
+                        action = f"set {local_ppm}→{new_ppm} ppm{method_tag} {dstr}"
                         new_dir = dir_for_emoji
                         # 👉 conta mudança de inbound (qualquer alteração, mesmo com outbound)
                         try:
@@ -2900,7 +2942,7 @@ def main(dry_run=False):
                         })
                         state[cid] = st
                     else:
-                        action = "❌ sem pubkey/snapshot p/ aplicar"
+                        action = "❌ sem pubkey/chan_point p/ aplicar"
                         new_dir = "flat"
                 except Exception as e:
                     action = f"❌ erro ao setar: {e}"
@@ -3044,7 +3086,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Simula: não aplica BOS; grava apenas campos de classificação se DRYRUN_SAVE_CLASS=True"
+        help="Simula: não aplica updates de fees; grava apenas campos de classificação se DRYRUN_SAVE_CLASS=True"
     )
     
     parser.add_argument(

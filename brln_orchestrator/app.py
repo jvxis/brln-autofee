@@ -25,8 +25,8 @@ from logging_config import setup_logging, get_logger
 setup_logging()
 logger = get_logger("app")
 
-APP_VERSION = "0.4.11"
-APP_VERSION_DESC = "AutoFee Integrado - Melhoria Autofee - Pacote de Melhorias UX, Logs e Estabilidade by Morata"
+APP_VERSION = "0.4.12"
+APP_VERSION_DESC = "AutoFee Integrado - Melhorias e Alteração de Fee por canal ao invés de PUBKEY - Troca BOS por LNDCLI e REST"
 DEFAULT_DB_PATH = Path("brln_orchestrator.sqlite3")
 DEFAULT_SETTINGS = {
     "mode": "conservador",
@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     secret_cmd.add_argument("--lndg-user")
     secret_cmd.add_argument("--lndg-pass")
     secret_cmd.add_argument("--lndg-db-path")
-    secret_cmd.add_argument("--bos-path")
+    secret_cmd.add_argument("--bos-path", help="(legado) caminho do bos (fallback)")
     secret_cmd.add_argument("--lncli-path")
     secret_cmd.add_argument("--lnd-rest-host", help="default = localhost:8080)")
     secret_cmd.add_argument("--lnd-macaroon-path", help="default = ~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon")
@@ -307,11 +307,11 @@ def build_services(storage: Storage) -> Dict[str, Any]:
             logger.info("LND REST API inicializada com sessão persistente")
             print("🔌 Usando LND REST API (sessão persistente)")
         except Exception as exc:
-            logger.warning(f"Falha ao inicializar LND REST: {exc}. Usando BOS como fallback")
-            print(f"⚠️ Erro ao inicializar LND REST: {exc}. Fallback para BOS.")
+            logger.warning(f"Falha ao inicializar LND REST: {exc}. Usando BOS (legado) como fallback")
+            print(f"⚠️ Erro ao inicializar LND REST: {exc}. Fallback para BOS (legado).")
             fee_service = BosService(secrets.get("bos_path") or "bos")
     else:
-        logger.info("Usando BOS para gerenciamento de fees")
+        logger.info("Usando LNCLI updatechanpolicy para fees (BOS legado como fallback)")
         fee_service = BosService(secrets.get("bos_path") or "bos")
 
     telegram = TelegramService(secrets.get("telegram_token"), secrets.get("telegram_chat"))

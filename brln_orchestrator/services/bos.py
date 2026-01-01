@@ -6,6 +6,7 @@ from typing import Optional
 
 
 class BosService:
+    """Legacy fallback for fee updates via BOS."""
     def __init__(self, path: str = "bos") -> None:
         self._raw_path = path.strip()
 
