@@ -27,6 +27,7 @@ logger = get_logger("ar_trigger")
 # Telegram
 TELEGRAM_TOKEN = "SEU TOKEN TELEGRAM"
 CHATID         = "SEU CHAT ID"
+SEND_TELEGRAM_WHEN_NO_CHANGES = True
 
 # LNDg API
 LNDG_BASE_URL = "http://ip-maquina-lndg:8889"
@@ -1046,7 +1047,8 @@ async def main():
           f"| on={cnt_on} | off={cnt_off} | target={cnt_target}")
 
         body = "\n\n".join(msgs) if msgs else "Sem mudanças."
-        await tg_send(session, f"{header}\n{body}")
+        if changes > 0 or SEND_TELEGRAM_WHEN_NO_CHANGES:
+            await tg_send(session, f"{header}\n{body}")
         logger.info(f"AR Trigger concluído: mudanças={changes}, on={cnt_on}, off={cnt_off}, target={cnt_target}")
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ class ARTriggerEngine:
         if not helper.table_exists("gui_payments") and helper.table_exists("payments"):
             self.legacy.load_rebal_costs = _wrap_load_rebal_costs(self.legacy.load_rebal_costs, "payments")  # type: ignore
 
-    def run(self, *, dry_run: bool, mode: str = "conservador") -> str:
+    def run(self, *, dry_run: bool, mode: str = "conservador", no_telegram_when_no_changes: bool = False) -> str:
         legacy = self.legacy
 
         self._dry_run = dry_run
@@ -131,6 +131,7 @@ class ARTriggerEngine:
         legacy.DB_PATH = secrets.get("lndg_db_path") or ""
         legacy.TELEGRAM_TOKEN = secrets.get("telegram_token") or ""
         legacy.CHATID = secrets.get("telegram_chat") or ""
+        legacy.SEND_TELEGRAM_WHEN_NO_CHANGES = not no_telegram_when_no_changes
         legacy.CACHE_PATH = "legacy_autofee_cache"
         legacy.STATE_PATH = "legacy_autofee_state"
 

@@ -145,6 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--no-autofee", action="store_true")
     run_cmd.add_argument("--no-ar", action="store_true")
     run_cmd.add_argument("--no-tuner", action="store_true")
+    run_cmd.add_argument("--no-ar-no-telegram", action="store_true", help="Nao envia Telegram do AR Trigger quando mudanças=0")
     run_cmd.add_argument("--once", action="store_true", help="Executa apenas um ciclo completo e encerra")
 
     return parser
@@ -444,7 +445,11 @@ def handle_run(storage: Storage, args: argparse.Namespace) -> None:
                 next_run["autofee"] = now + intervals["autofee"]
             if loop_enabled["ar"] and now >= next_run["ar"]:
                 run_module(
-                    lambda: engines["ar"].run(mode=updates["mode"], dry_run=updates["dry_run_ar"]),  # type: ignore
+                    lambda: engines["ar"].run(
+                        mode=updates["mode"],
+                        dry_run=updates["dry_run_ar"],
+                        no_telegram_when_no_changes=args.no_ar_no_telegram,
+                    ),  # type: ignore
                     "ar",
                     storage=storage,
                 )

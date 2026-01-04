@@ -192,6 +192,7 @@ python3 -m brln_orchestrator run \
 Por padrão, os intervalos são 600s (AutoFee), 300s (AR) e 1800s (Tuner).
 Ajuste conforme a cadência desejada; para observar apenas um módulo, defina intervalos altos nos demais (ex.: `--loop-interval-ar 3600`).
 Use `--no-autofee`, `--no-ar` ou `--no-tuner` para desativar loops específicos.
+Use `--no-ar-no-telegram` para suprimir o resumo do AR Trigger no Telegram quando `mudanças=0`.
 Adicione `--once` para executar uma única rodada e encerrar.
 
 Se voce tiver ligado algum `--dry-run-*` em execucoes anteriores e quiser voltar ao modo real, utilize as flags opostas para limpar o estado persistido: `--no-dry-run-autofee`, `--no-dry-run-ar` e/ou `--no-dry-run-tuner`. As flags de dry-run existem tambem para o Tuner; lembre-se de desativa-las se quiser que ele aplique overrides definitivos.
