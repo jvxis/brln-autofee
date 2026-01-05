@@ -7,33 +7,29 @@ import requests
 import re
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from logging_config import setup_logging, get_logger
-
-setup_logging()
-logger = get_logger("autofee")
-
 
 # ========== CONFIG ==========
-DB_PATH = '/home/admin/lndg/data/db.sqlite3'   # ajuste se necessario
+DB_PATH = '/home/admin/lndg/data/db.sqlite3'   # ajuste se necessário
 LNCLI   = "lncli"
-BOS     = "/home/admin/.npm-global/lib/node_modules/balanceofsatoshis/bos"  # legado, fallback
+BOS     = "/home/admin/.npm-global/lib/node_modules/balanceofsatoshis/bos"
 USE_LNCLI_UPDATECHANPOLICY = True
-TIME_LOCK_DELTA = 144
 
 # Amboss (HARD-CODE p/ testes)
-AMBOSS_TOKEN = ""  # <<< PREENCHER
+AMBOSS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ2ZXJzaW9uIjowLjEsImlhdCI6MTczMTEwMzY2NCwiZXhwIjoxNzYyNjM5NjY0LCJpc3MiOiJhcGkuYW1ib3NzLnNwYWNlIiwic3ViIjoiNTllYzljMGYtODBjNC00NDY5LTllOTgtNzdmZmJiNDlkYjY5In0.8CSsO7na1MCawTzZalVFfQ-3bjOZdRdq2KWojQqfj_c"  # <<< PREENCHER
 AMBOSS_URL   = "https://api.amboss.space/graphql"
 
 # Telegram (HARD-CODE p/ testes; opcional)
-TELEGRAM_TOKEN = ""  # <<< PREENCHER
-TELEGRAM_CHAT  = ""         # <<< PREENCHER
+TELEGRAM_TOKEN = "6620180456:AAHgNiZB3HDT6s2XpIHG4iwQgX7Sw9sdMTE"  # <<< PREENCHER
+TELEGRAM_CHAT  = "-4012983440"         # <<< PREENCHER
 
-# Versao centralizada (texto): 1a linha util define a versao ativa
-# Ex.: 0.2.9 - Descricao da versao
-VERSIONS_FILE = ""
+# Versão centralizada (texto): 1ª linha útil define a versão ativa
+# Ex.: 0.2.9 - Descrição da versão
+VERSIONS_FILE = "/home/admin/lndtools/versions.txt"
 
 
+# =========================
+# CONFIG (perfil conservador pró-lucro)
+# =========================
 
 LOOKBACK_DAYS = 7
 CACHE_PATH    = "/home/admin/.cache/auto_fee_amboss.json"
@@ -41,8 +37,8 @@ STATE_PATH    = "/home/admin/.cache/auto_fee_state.json"
 
 # --- limites base ---
 BASE_FEE_MSAT = 0
-MIN_PPM = 10          # protege receita mínima
-MAX_PPM = 2000         # teto padrão
+MIN_PPM = 0          # protege receita mínima
+MAX_PPM = 5000         # teto padrão
 # MOD: clamp final explícito será aplicado no final do cálculo (higiene)
 
 # --- “velocidade” de mudança por execução (padrão) ---
@@ -60,7 +56,7 @@ IDLE_EXTRA_CUT      = 0.015  # corte quase nulo por ociosidade
 
 # --- escalada por persistência de baixo outbound ---
 PERSISTENT_LOW_ENABLE        = True
-PERSISTENT_LOW_THRESH        = 0.10   # considera "baixo" se < 10%
+PERSISTENT_LOW_THRESH        = 0.05   # considera "baixo" se < 5%
 PERSISTENT_LOW_BUMP          = 0.05   # +5% no alvo por rodada de streak
 PERSISTENT_LOW_STREAK_MIN    = 1      # só começa a agir a partir de 1 rodada seguidas
 PERSISTENT_LOW_MAX           = 0.25   # teto de +25% acumulado
@@ -92,7 +88,7 @@ REBAL_BLEND_LAMBDA = 0.20      # se "blend": 30% global, 70% canal
 SEED_GUARD_ENABLE      = True
 SEED_GUARD_MAX_JUMP    = 0.50   # máx +50% vs seed anterior gravado no STATE
 SEED_GUARD_P95_CAP     = True   # cap no P95 da série 7d do Amboss
-SEED_GUARD_ABS_MAX_PPM = 1600   # teto absoluto opcional (0/None para desativar)
+SEED_GUARD_ABS_MAX_PPM = 5000   # teto absoluto opcional (0/None para desativar)
 
 # --- Piso opcional pelo out_ppm7d (histórico de forwards) ---
 OUTRATE_FLOOR_ENABLE      = True
@@ -103,7 +99,7 @@ OUTRATE_FLOOR_MIN_FWDS    = 4
 OUTRATE_PEG_ENABLE         = True     # ativa proteção para não cair abaixo do preço que já vendeu
 OUTRATE_PEG_MIN_FWDS       = 4        # bastou 4 forward na janela para reconhecer 'preço observado'
 OUTRATE_PEG_HEADROOM       = 0.05     # folga de +1% acima do outrate observado
-OUTRATE_PEG_GRACE_HOURS    = 16       # só autoriza cair abaixo do outrate após 24h desde a última mudança
+OUTRATE_PEG_GRACE_HOURS    = 16       # só autoriza cair abaixo do outrate após 16h desde a última mudança
 OUTRATE_PEG_SEED_MULT      = 1.10     # se outrate >= 1.05x seed, trata como demanda real (fura teto seed*1.8)
 
 # =========================
@@ -170,14 +166,14 @@ EXTREME_DRAIN_TURBO_MIN_STEP_PPM = 20
 # MOD: Revenue floor (piso por tráfego) p/ super-rotas muito ativas
 REVFLOOR_ENABLE            = True
 REVFLOOR_BASELINE_THRESH   = 80
-REVFLOOR_MIN_PPM_ABS       = 140
+REVFLOOR_MIN_PPM_ABS       = 100
 
 # 3) Margem 7d negativa
 NEG_MARGIN_SURGE_ENABLE = True
 NEG_MARGIN_SURGE_BUMP   = 0.05
 NEG_MARGIN_MIN_FWDS     = 5
 
-# 4) Evitar “micro-updates” na policy (MAIS DURO p/ 1h)
+# 4) Evitar “micro-updates” no BOS (MAIS DURO p/ 1h)
 BOS_PUSH_MIN_ABS_PPM   = 15     # ↑
 BOS_PUSH_MIN_REL_FRAC  = 0.04   # ↑
 
@@ -241,6 +237,7 @@ SUPER_SOURCE_ENTER_HOURS     = 0
 SUPER_SOURCE_EXIT_HOURS      = 72
 SUPER_SOURCE_BASE_FEE_MSAT   = 1000
 TAG_SUPER_SOURCE             = "super-source"
+
 
 # Políticas por classe
 SINK_EXTRA_FLOOR_MARGIN        = 0.05
@@ -312,7 +309,7 @@ P65_BOOST         = 1.15         # se tiver p65, dá um leve boost
 SINK_MIN_MARGIN = 150          # margem mínima em ppm para ativar o turbo sink lucrativo
 
 # ========== INBOUND DISCOUNT (REBATE) ==========
-INBOUND_FEE_ENABLE              = False  # liga/desliga globalmente
+INBOUND_FEE_ENABLE              = True  # liga/desliga globalmente
 INBOUND_FEE_SINK_ONLY           = True   # só aplicar em canais classificados como sink
 INBOUND_FEE_PASSIVE_REBAL_MODE  = True   # False = comportamento antigo (mais conservador)
 INBOUND_FEE_MIN_FWDS_7D         = 5      # precisa ter uso mínimo (forward 7d)
@@ -320,7 +317,7 @@ INBOUND_FEE_MIN_MARGIN_PPM      = 200    # margem 7d mínima para começar a dar
 INBOUND_FEE_SHARE_OF_MARGIN     = 0.30   # % da margem em ppm que vira desconto (30%)
 INBOUND_FEE_MAX_FRAC_LOCAL      = 0.90   # desconto nunca passa de 90% da taxa local
 INBOUND_FEE_MIN_OVER_REBAL_FRAC = 1.002   # net_fee >= 1.002 * custo_rebal (protege o custo)
-INBOUND_FEE_PUSH_MIN_ABS_PPM    = 10     # só reenviar policy se mudar pelo menos isso
+INBOUND_FEE_PUSH_MIN_ABS_PPM    = 10     # só reenviar BOS se mudar pelo menos isso
 # Desconto especial para sinks MUITO drenados sem rebal 7d real
 INBOUND_FEE_DRAINED_NO_REBAL_ENABLE   = True    # liga/desliga esse modo
 INBOUND_FEE_DRAINED_OUT_RATIO_MAX     = 0.05    # considera "muito drenado" se outbound < 5%
@@ -341,15 +338,88 @@ DRYRUN_SAVE_CLASS = True
 DIDACTIC_EXPLAIN_ENABLE = False     # padrão desligado; liga por CLI/env
 DIDACTIC_LEVEL = "basic"            # "basic" (1 linha) ou "detailed" (passo a passo)
 
-# DEPRECATED - USA BANCO DE DADOS
+# === OVERRIDES DINÂMICOS (IA) ===
+OVERRIDES_PATH = os.getenv("AUTOFEE_OVERRIDES", "/home/admin/lndtools/autofee_overrides.json")
+
+
 EXCLUSION_LIST = {
     #'024700001dd2f801c6489983b528ae4895e0815b34b60729affd68c4e681ab9f4d', #BITSCOINERS|BR⚡️LN
     #'0255457f1231750f726caf0ef32cfdfd1066df0012676e28f72cacc9ea96d67646', #Kriptoeleutheria
-    #'02b2ae15001601b74eee8ddbd036315c5fbd415b24f88f24d5266820169dfd13de' #lndwr3.zaphq.io
+    #'026b33a83311adebb7915427734e483787ef57d856f5c792ea6f866cfea7e58908', #Volarte
+    #'021c97a90a411ff2b10dc2a8e32de2f29d2fa49d41bfbb52bd416e460db0747d0d', #Loop
+    #'03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f', #ACINQ
+    #'02e4971e61a3f55718ae31e2eed19aaf2e32caf3eb5ef5ff03e01aa3ada8907e78', #1sats.com⚡️lsp.flashsats.xyz
+    #'0322824989daf1f31dae04fee4034be4069f3dabf7059cf7c637257bc9735da80b', #PurpleWisteria
+    #'039cdd937f8d83fb2f78c8d7ddc92ae28c9dbb5c4827181cfc80df60dee1b7bf19', #Kazumyon
+    #'035e4ff418fc8b5554c5d9eea66396c227bd429a3251c8cbc711002ba215bfc226', #WalletOfSatoshi.com
+    #'03271338633d2d37b285dae4df40b413d8c6c791fbee7797bc5dc70812196d7d5c', #lnmarkets.com
+    #'02d96eadea3d780104449aca5c93461ce67c1564e2e1d73225fa67dd3b997a6018', #Boltz CLN
+    #'026165850492521f4ac8abd9bd8088123446d126f648ca35e60f88177dc149ceb2', #Boltz
+    #'033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025', #bfx-lnd0
+    #'03cde60a6323f7122d5178255766e38114b4722ede08f7c9e0c5df9b912cc201d6', #bfx-lnd1
+    #'0294ac3e099def03c12a37e30fe5364b1223fd60069869142ef96580c8439c2e0a', #okx
+    #'02f1a8c87607f415c8f22c00593002775941dea48869ce23096af27b0cfdcc0b69', #Kraken 🐙⚡
+    #'0324ba2392e25bff76abd0b1f7e4b53b5f82aa53fddc3419b051b6c801db9e2247', #kappa
+    #'02c91d6aa51aa940608b497b6beebcb1aec05be3c47704b682b3889424679ca490', #LNBiG [Hub-3]
+    #'033e9ce4e8f0e68f7db49ffb6b9eecc10605f3f3fcb3c630545887749ab515b9c7', #LNBiG [Hub-2]
+    #'03da1c27ca77872ac5b3e568af30673e599a47a5e4497f85c7b5da42048807b3ed', #LNBIG [Edge-3]
+    #'026af41af0e3861ba170cc0eef8f45a1015125dac57c28df53752caaeea793b28f', #BitcoinVN 22
+    #'03797da684da0b6de8a813f9d7ebb0412c5d7504619b3fa5255861b991a7f86960', #BitcoinJungleCR
+    #'027100442c3b79f606f80f322d98d499eefcb060599efc5d4ecb00209c2cb54190', #block
+    '03477b0f9679de60b3a803b47294e37b4c14a383564afded973114134623d2ec82', #BR⚡LN HUB
+    #'021294fff596e497ad2902cd5f19673e9020953d90625d68c22e91b51a45c032d3', #ln.coinos.io
+    #'03c72f89b660de43fc5c77ef879cbf7846601af88befb80e436242909b14fd0495', #RecklessApotheosis
+    #'032ae3168ba52314da581d6b6693c562b437a9cf805933d4d69e7801547e07302e', #LQwD-France
+    #'03e4f3d7ccf98bdbf24085b948f204a6c0c0b4464a7572cbac85c746085b14bbc9', #LQwD-Australia
+    #'031a01e29587952eda0ed5d10c4e79bf0fc88d61aeae89e8a7ea7c036badb8c793', #LQwD-Japan
+    #'0364913d18a19c671bb36dd04d6ad5be0fe8f2894314c36a9db3f03c2d414907e1', #LQwD-Canada
+    #'036afe432cad4fd5a5671d9d95d3d3671e315825efdc10f734dba1f47a711a276b', #LQwD-US-West-2
+    #'02be8a325c61af50aebc2004e3a3db0dc8d255f2fb95036738392172f739fa1c3a', #LQWD-England
+    #'023631624e30ef7bcb2887e600da8e59608a093718bc40d35b7a57145a0f3db9af', #speedupln.com
+    #'03c157946cc1cd376b929e36006e645fae490b1b1d4156b40db804e01b4bda48cd', #The Continental
+    #'03a93b87bf9f052b8e862d51ebbac4ce5e97b5f4137563cd5128548d7f5978dda9', #cyberdyne.sh
+    #'02abfbe63425b1ba4f245af72a0a85ba16cd13365704655b2abfc13e53ad338e02', #Azteco
+    #'035adfeca8fc95de5e2e9dbf9be39ac577b510e7dad0ad9287117d01f282eb667a', #TennisNbtc
+    '02bc400b9df471549c1a2071a61be27460e9726d3399370671514dd8356606bd81', #Aldebaran
+    #'0394a8cf19969a6aa5677f5b62b37104187b967322415351286c928fd66ceb0d97', #AZ Capital
+    #'03641a88d80a2a85bbecd770577aca9b5495616e9fef63d66ef2631b7cca1d395d', #Nodelou
+    #'036b7ad803b5ba34a3eb39ef501ce1aeb700084c4cf11ba64ca57654eddcb4ecda', #⚡​AquiTemBitcoin⚡​
+    #'03080b61a2dab8ef6bd9a227377b59b43f22662430236c0c620f405dc8d422e2db', #Matt Hatter
+    #'0309f02bbfcbad0dd50a14a7ba7a4050bae9f404f5a2c7306634453e852fcebda0', #PagSats | BR⚡️LN
+    #'020ca6f9aaebc3c8aab77f3532112649c28a0bfb1539d0c2a42f795fb6e4c363b2', #carlslight
+    '03a92a92e64eca60c122e87e90c6373e6ce23b171ab6f8f5f24c1512b668629a1a', #WildSats ⚡
+    #'03c8e5f583585cac1de2b7503a6ccd3c12ba477cfd139cd4905be504c2f48e86bd', #Strike
+    #'0323a74fbd280d757cdd8c04513d302077089f3205db62963d0dea468c6424d231', #LudwigTheAustrian
+    #'022c402216eee911831d0d21e8ff5d9f2ac664b7c24cb674cf9e90b00f99a3d7c3', #ln.solid
+    #'026606c031210ff5a38e193bfc3148ce8147f18f93637ffcb967d829ab361e4852', #WWALKER  | BR⚡LN
+    #'0362259ea579f84772508de22086fa746f6e2571f8efb4bd5ec0876bcd18b5747c', #Sunshine Canyon
+    #'028268dcb4c68311613dd3bbb0164f7685b6710022bfa6dcce639acd44695049a2', #⚡blitz⚡
+    #'038607b58550d272ce8a058b77bc7a00e099687531359074bb600477f6bb7d1764', #Tiger 🐯 | BR⚡️LN
+    #'03423790614f023e3c0cdaa654a3578e919947e4c3a14bf5044e7c787ebd11af1a', #Sunny Sarah
+    #'02dfe525d9c5b4bb52a55aa3d67115fa4a6326599c686dbd1083cffe0f45c114f8', #02dfe525d9c5b4bb52a5
+    '0382b31dcff337311bf919411c5073c9c9a129890993f94f4a16eaaeffd91c7788', #sparkseer.space / lnnodeinsight
+    '03eb9f088f62bb414b74b11e287624d5f05fd92b582658b47b4ed6048e0dd01404', #Fi4free
+    '0226b07c45a5d7dd0291ce0cf26764ca942473a9b7a62c0e83fd3350126238d673', #Alfred-pay
+    #'03aae60ebc0d009ef1bd3bcd5c66611d66cd235bff9ee7d2ce7ffec89fb369e981', #info.pagcoin.org|BR⚡️LN
+    #'0226c3a56e4c8c67ed28ba0ea7a26cb1c044a14dabd3db78849560c7e74904ea5b', #d0d0LNDnode
+    #'03fe47fdfea0f25fad0013498e8d6cec348ae3d673841ec25ee94f87c21af16ed8', #fortuna-custody-stroom
+    #'023668d1fd35d0736b24a80ced02410e9a61365de695664017aa9417c500ddfb19', #hqq
+    #'023369b071005d376bfa94b76d2ec52d01d6709f57d6b67bf26250f2ef57a66aea', #St_paul
+    #'02c4ae20674d7627021639986d75988b5f17c8693ed43b794beeef2384d04e5bf1', #LnVoltz.xyz
+    #'02cad4ec4c8b0dc2c7035a1898f979c8c7169bdff74e01ad6ca7aea59d85c59e8b', #xmrk reloaded
+    #'0222c1b70819b9c3e09c6e3096bae45e2464bc56de5fe8056b4ec0e089346eed19', #Satsconf 2025
+    #'0301e46e7f02c955e274bf60dd819c153d93b2d87017122df72ba3dc06af4a294c', #Elysium
+    #'038bcc6471941c7d6c14a8ce5b7159d8f73a3a0bb9a93e8896bcb892e14552658a', #Mutatrum
+    #'02dfb4c1dd59216fa6a28d0f012e188516f63517db68c4e4b82c3af41343a05bc4', #routing.blinkbtc
+    #'02c7e1d98a1e2b61a14e3c1c0d9a36fc8eb257325f2277e8bcbe10b21337f2a45e', #Alex71btc
+    #'038785f5cb66513dde1d874393f7a85862d70c276601a54572dab16e3ba5ab8503', #HarryPotter
+    #'0326e692c455dd554c709bbb470b0ca7e0bb04152f777d1445fd0bf3709a2833a3', #Allnice
+    #'026f46207fd290a33cbd86e29b3ad0a47cdd44ab9aa5267cde66483e10aa9d3180', #Authenticity
+    #'025f1456582e70c4c06b61d5c8ed3ce229e6d0db538be337a2dc6d163b0ebc05a5', #Moon
+    #'02e1dad4d396696cb207a524bdf595f1a2e6792d7b990f18cef1ebd1b557bb110f', #UnitedPlow
+    '02b2ae15001601b74eee8ddbd036315c5fbd415b24f88f24d5266820169dfd13de' #lndwr3.zaphq.io
 }
 
-# === OVERRIDES DINÂMICOS (IA) ===
-OVERRIDES_PATH = os.getenv("AUTOFEE_OVERRIDES", "/home/admin/lndtools/autofee_overrides.json")
 
 def _apply_overrides(ns: dict, ov: dict, prefix=""):
     """Aplica ov[k] -> ns[k] apenas se ns tiver k. Evita criar variáveis novas por engano."""
@@ -398,6 +468,7 @@ def to_sqlite_str(dt):
         dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
     return dt.isoformat(sep=' ', timespec='seconds')
 
+
 def parse_sqlite_dt(val):
     """Parse seguro de datetime vindo do SQLite (string ISO)."""
     if isinstance(val, datetime.datetime):
@@ -416,6 +487,7 @@ def parse_sqlite_dt(val):
     if dt.tzinfo is not None:
         dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
     return dt
+
 
 def save_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -470,216 +542,6 @@ def _chunk_text(text, max_len=4000):
         chunks.append(text[:cut])
         text = text[cut:]
     return chunks
-
-
-def _format_channel_entry(entry: str) -> str:
-    lines = entry.split('\n')
-    result = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        if stripped.startswith('✅') or stripped.startswith('🫤') or stripped.startswith('⏭️'):
-            if '|' in stripped:
-                parts = stripped.split('|')
-                header = parts[0].strip()
-                result.append(header)
-                result.append("")
-
-                metrics = []
-                tags = []
-
-                for p in parts[1:]:
-                    p = p.strip()
-                    if not p:
-                        continue
-
-                    is_tag = False
-                    tag_chars = ['🟢', '🔴', '🏷️', '🧭', '🧬', '🔬', '⛔', '🧱', '⚡', '💹', '🧲', '🔍', '⏳', '🩹', '🧘']
-                    for tc in tag_chars:
-                        if tc in p:
-                            is_tag = True
-                            break
-
-                    if is_tag or (len(p) < 30 and not any(x in p for x in ['≈', ':', '=', 'ppm', '%'])):
-                        individual_tags = p.split()
-                        tags.extend(individual_tags)
-                    else:
-                        metrics.append(p)
-
-                if metrics:
-                    result.append("  📊 Métricas:")
-                    for m in metrics:
-                        result.append(f"     • {m}")
-                    result.append("")
-
-                if tags:
-                    result.append("  🏷️ Status:")
-                    tag_line = "     "
-                    for t in tags:
-                        if len(tag_line) + len(t) + 1 > 60:
-                            result.append(tag_line)
-                            tag_line = f"     {t}"
-                        else:
-                            tag_line += f" {t}" if tag_line.strip() else t
-                    if tag_line.strip():
-                        result.append(tag_line)
-                    result.append("")
-            else:
-                result.append(stripped)
-                result.append("")
-
-        elif stripped.startswith('🔮'):
-            result.append(f"  {stripped}")
-            result.append("")
-
-        elif stripped.startswith('💡') or stripped.startswith('📖'):
-            result.append(f"  {stripped}")
-            result.append("")
-
-        else:
-            if '|' in stripped and stripped.count('|') >= 3:
-                parts = [p.strip() for p in stripped.split('|') if p.strip()]
-                for p in parts:
-                    result.append(f"     • {p}")
-                result.append("")
-            else:
-                result.append(f"  {stripped}")
-                result.append("")
-
-    return '\n'.join(result)
-
-
-def _format_telegram_report(report: list) -> str:
-    if not report:
-        return ""
-
-    full_text = '\n'.join(report)
-    import re
-
-    lines = []
-    header_lines = []
-    channel_entries = []
-    footer_lines = []
-
-    current_block = []
-    in_channel = False
-
-    for line in report:
-        stripped = line.strip() if line else ""
-
-        is_channel_start = (
-            stripped.startswith('✅') or
-            stripped.startswith('🫤') or
-            stripped.startswith('⏭️') or
-            stripped.startswith('🧭') or
-            stripped.startswith('🧯')
-        ) and ('TARGET' in stripped or 'chan_id' in stripped.lower() or '(' in stripped)
-
-        if is_channel_start:
-            if current_block:
-                block_text = '\n'.join(current_block)
-                if any(block_text.startswith(e) for e in ['✅', '🫤', '⏭️', '🧭', '🧯']):
-                    channel_entries.append(block_text)
-                elif not in_channel:
-                    header_lines.extend(current_block)
-                else:
-                    footer_lines.extend(current_block)
-            current_block = [stripped]
-            in_channel = True
-        elif in_channel and stripped:
-            current_block.append(stripped)
-        elif not in_channel and stripped:
-            header_lines.append(stripped)
-        elif in_channel and not stripped:
-            current_block.append("")
-
-    if current_block:
-        block_text = '\n'.join(current_block)
-        if any(block_text.startswith(e) for e in ['✅', '🫤', '⏭️', '🧭', '🧯']):
-            channel_entries.append(block_text)
-        else:
-            footer_lines.extend(current_block)
-
-    changed = []
-    kept = []
-    skipped = []
-    explorer = []
-    cb = []
-
-    for entry in channel_entries:
-        if entry.startswith('✅'):
-            changed.append(entry)
-        elif entry.startswith('🫤'):
-            kept.append(entry)
-        elif entry.startswith('⏭️'):
-            skipped.append(entry)
-        elif entry.startswith('🧭'):
-            explorer.append(entry)
-        elif entry.startswith('🧯'):
-            cb.append(entry)
-
-    output = []
-
-    if header_lines:
-        output.extend(header_lines[:2])
-        output.append("")
-        output.append("")
-
-    if changed:
-        output.append("✅ CANAIS ALTERADOS")
-        output.append("")
-        for entry in changed:
-            output.append(_format_channel_entry(entry))
-            output.append("")
-            output.append("")
-
-    if kept:
-        output.append("🫤 CANAIS MANTIDOS")
-        output.append("")
-        for entry in kept:
-            output.append(_format_channel_entry(entry))
-            output.append("")
-            output.append("")
-
-    if skipped:
-        output.append("⏭️ CANAIS IGNORADOS")
-        output.append("")
-        for entry in skipped:
-            output.append(_format_channel_entry(entry))
-            output.append("")
-            output.append("")
-
-    if explorer:
-        output.append("🧭 EXPLORER STATUS")
-        output.append("")
-        for entry in explorer:
-            output.append(_format_channel_entry(entry))
-            output.append("")
-            output.append("")
-
-    if cb:
-        output.append("🧯 CIRCUIT BREAKER")
-        output.append("")
-        for entry in cb:
-            output.append(_format_channel_entry(entry))
-            output.append("")
-            output.append("")
-
-    if footer_lines:
-        useful_footer = [f for f in footer_lines if f.strip()]
-        if useful_footer:
-            output.append("")
-            output.append("ℹ️ Informações:")
-            output.append("")
-            for f in useful_footer:
-                output.append(f)
-                output.append("")
-
-    return '\n'.join(output)
-
 
 def tg_send_big(text):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT:
@@ -1074,7 +936,7 @@ def seed_with_guard(pubkey, cache, state, cid):
 
     return float(seed), float(raw_p65), (float(p95) if p95 is not None else None), flags
 
-# ========== BOS (LEGADO) ==========
+# ========== BOS ==========
 def bos_set_fees(to_pubkey, out_ppm, inbound_discount_ppm=None):
     """
     Seta a fee de saída e, opcionalmente, o rebate de inbound (discount).
@@ -1086,7 +948,6 @@ def bos_set_fees(to_pubkey, out_ppm, inbound_discount_ppm=None):
         inb_v = max(0, int(round(inbound_discount_ppm)))
         cmd += f' --set-inbound-rate-discount {inb_v}'
     run(cmd)
-    return "BOS"
 
 
 def bos_set_fee_ppm(to_pubkey, ppm_value):
@@ -1097,7 +958,7 @@ def bos_set_fee_ppm(to_pubkey, ppm_value):
 
 def lncli_set_fees(chan_point, out_ppm, inbound_discount_ppm=None, base_fee_msat=None):
     """
-    Atualiza policy via lncli por chan_point (permite fees por canal).
+    Atualiza policy via lncli por chan_point (permite fees por channel id).
     """
     if not chan_point:
         raise ValueError("chan_point obrigatorio para lncli updatechanpolicy")
@@ -1106,30 +967,23 @@ def lncli_set_fees(chan_point, out_ppm, inbound_discount_ppm=None, base_fee_msat
     cmd = (
         f"{LNCLI} updatechanpolicy"
         f" --base_fee_msat {int(base_fee)}"
-        f" --time_lock_delta {int(TIME_LOCK_DELTA)}"
+        f" --time_lock_delta 144"
         f" --fee_rate_ppm {out_v}"
         f" --inbound_base_fee_msat 0"
         f" --chan_point {chan_point}"
     )
     if inbound_discount_ppm is not None:
         inb_v = -abs(int(round(inbound_discount_ppm)))
-        cmd += f" --inbound_fee_rate_ppm {inb_v}"
+        cmd += f' --inbound_fee_rate_ppm {inb_v}'
     run(cmd)
-    return "LNCLI"
 
 def set_channel_fees(pubkey, chan_point, out_ppm, inbound_discount_ppm=None, base_fee_msat=None):
     if USE_LNCLI_UPDATECHANPOLICY and chan_point:
-        return lncli_set_fees(chan_point, out_ppm, inbound_discount_ppm, base_fee_msat=base_fee_msat)
+        lncli_set_fees(chan_point, out_ppm, inbound_discount_ppm, base_fee_msat=base_fee_msat)
+        return
     if not pubkey:
         raise ValueError("pubkey obrigatorio para aplicar fees via bos")
-    return bos_set_fees(pubkey, out_ppm, inbound_discount_ppm)
-
-def fee_update_method(pubkey, chan_point):
-    if USE_LNCLI_UPDATECHANPOLICY and chan_point:
-        return "LNCLI"
-    if pubkey:
-        return "BOS"
-    return "UNKNOWN"
+    bos_set_fees(pubkey, out_ppm, inbound_discount_ppm)
 
 # ========== STATE ==========
 def get_state():
@@ -1269,7 +1123,7 @@ def build_didactic_explanation(
         if class_label == "sink":
             sinais.append("tende a receber mais do que enviar")
             significados.append("evitamos ficar baratos demais para não esvaziar ainda mais")
-        elif class_label == "source" and final_ppm <= local_ppm:
+        elif class_label in ("source", "router") and final_ppm <= local_ppm:
             sinais.append("tende a enviar mais do que receber")
             significados.append("podemos trabalhar com taxa mais baixa para ganhar volume")
         elif class_label == "router":
@@ -1545,12 +1399,13 @@ def _clear_explorer_state(st: dict, cid: str):
 
 # ========== PIPELINE ==========
 def main(dry_run=False):
-    logger.info("Iniciando AutoFee")
     global EXCL_DRY_VERBOSE,ASSISTED_DIAG_ENABLE
 
+    # Override por variável de ambiente (sem quebrar compat)
     env_excl = os.getenv("EXCL_DRY_VERBOSE")
     if env_excl is not None:
         EXCL_DRY_VERBOSE = str(env_excl).strip().lower() in ("1","true","yes","on")
+    # Override de explicação didática por variável de ambiente
     env_did = os.getenv("DIDACTIC_EXPLAIN")
     if env_did is not None:
         globals()["DIDACTIC_EXPLAIN_ENABLE"] = str(env_did).strip().lower() in ("1","true","yes","on")
@@ -1558,7 +1413,7 @@ def main(dry_run=False):
     env_did_level = os.getenv("DIDACTIC_LEVEL")
     if env_did_level and env_did_level.strip().lower() in ("basic","detailed"):
         globals()["DIDACTIC_LEVEL"] = env_did_level.strip().lower()
-
+        
     env_diag = os.getenv("DID_ASSISTED")
     if env_diag is not None:
         ASSISTED_DIAG_ENABLE = str(env_diag).strip().lower() in ("1","true","yes","on")
@@ -1568,62 +1423,51 @@ def main(dry_run=False):
     state = get_state()
     version_info = read_version_info(VERSIONS_FILE)
     vstr = version_info.get("version", "0.0.0")
-    logger.info(f"Versão: {vstr}, dry_run={dry_run}")
 
     t1_epoch, t2_epoch = epoch_days_ago(LOOKBACK_DAYS)
     start_dt = datetime.datetime.fromtimestamp(t1_epoch, datetime.timezone.utc)
     end_dt   = datetime.datetime.fromtimestamp(t2_epoch, datetime.timezone.utc)
+
     one_day_ago = end_dt - datetime.timedelta(days=1)
     one_day_ago_naive = one_day_ago.astimezone(datetime.timezone.utc).replace(tzinfo=None)
 
     conn = db_connect()
     cur  = conn.cursor()
 
-    # Detecta se 'chan_point' existe no LNDg
-    if has_column(cur, "gui_channels", "chan_point"):
-        cur.execute("""
-            SELECT chan_id, chan_point, alias, local_fee_rate, remote_fee_rate, ar_max_cost, remote_pubkey, is_open
+    # Detecta chan_point (ou funding_txid/output_index) no LNDg
+    has_chan_point_col = has_column(cur, "gui_channels", "chan_point")
+    has_funding_txid = has_column(cur, "gui_channels", "funding_txid")
+    has_output_index = has_column(cur, "gui_channels", "output_index")
+
+    chan_point_sel = "chan_point" if has_chan_point_col else "NULL as chan_point"
+    funding_txid_sel = "funding_txid" if has_funding_txid else "NULL as funding_txid"
+    output_index_sel = "output_index" if has_output_index else "NULL as output_index"
+    cur.execute(f"""
+        SELECT chan_id, {chan_point_sel}, {funding_txid_sel}, {output_index_sel},
+               alias, local_fee_rate, remote_fee_rate, ar_max_cost, remote_pubkey, is_open
         FROM gui_channels
-        """)
-        meta_rows = cur.fetchall()
-        channels_meta = {}
-        open_cids = set()
-        for (chan_id, chan_point, alias, local_fee_rate, remote_fee_rate, ar_max_cost, remote_pubkey, is_open) in meta_rows:
-            cid = str(chan_id)  # SCID DECIMAL
-            channels_meta[cid] = {
-                "chan_point": chan_point,
-                "alias": alias or "Unknown",
-                "local_ppm": int(local_fee_rate or 0),
-                "remote_fee_rate": int(remote_fee_rate or 0),
-                "ar_max_cost": float(ar_max_cost or 0),
-                "remote_pubkey": remote_pubkey,
-                "is_open": int(is_open or 0),
-            }
-            if int(is_open or 0) == 1:
-                open_cids.add(cid)
-        has_chan_point = True
-    else:
-        cur.execute("""
-            SELECT chan_id, alias, local_fee_rate, remote_fee_rate, ar_max_cost, remote_pubkey, is_open
-            FROM gui_channels
-        """)
-        meta_rows = cur.fetchall()
-        channels_meta = {}
-        open_cids = set()
-        for (chan_id, alias, local_fee_rate, remote_fee_rate, ar_max_cost, remote_pubkey, is_open) in meta_rows:
-            cid = str(chan_id)
-            channels_meta[cid] = {
-                "chan_point": None,
-                "alias": alias or "Unknown",
-                "local_ppm": int(local_fee_rate or 0),
-                "remote_fee_rate": int(remote_fee_rate or 0),
-                "ar_max_cost": float(ar_max_cost or 0),
-                "remote_pubkey": remote_pubkey,
-                "is_open": int(is_open or 0),
-            }
-            if int(is_open or 0) == 1:
-                open_cids.add(cid)
-        has_chan_point = False
+    """)
+    meta_rows = cur.fetchall()
+    channels_meta = {}
+    open_cids = set()
+    for (chan_id, chan_point, funding_txid, output_index,
+         alias, local_fee_rate, remote_fee_rate, ar_max_cost, remote_pubkey, is_open) in meta_rows:
+        cid = str(chan_id)  # SCID DECIMAL
+        cp = chan_point
+        if not cp and funding_txid and output_index is not None:
+            cp = f"{funding_txid}:{int(output_index)}"
+        channels_meta[cid] = {
+            "chan_point": cp,
+            "alias": alias or "Unknown",
+            "local_ppm": int(local_fee_rate or 0),
+            "remote_fee_rate": int(remote_fee_rate or 0),
+            "ar_max_cost": float(ar_max_cost or 0),
+            "remote_pubkey": remote_pubkey,
+            "is_open": int(is_open or 0),
+        }
+        if int(is_open or 0) == 1:
+            open_cids.add(cid)
+    has_chan_point = has_chan_point_col or (has_funding_txid and has_output_index)
 
     live = listchannels_snapshot()
     live_by_scid  = live["by_scid_dec"]
@@ -2058,6 +1902,7 @@ def main(dry_run=False):
                 else:
                     class_conf = min(1.0, 0.5*class_conf + 0.5*cand_conf)
 
+        
         # --- Super-source (auto) ---
         super_source_active = False
         super_source_warm = False
@@ -2613,7 +2458,7 @@ def main(dry_run=False):
                     floor_src = "rebal"
 
 
-        # Cálculo final com piso
+        # C?lculo final com piso
         if super_source_active:
             floor_ppm = MIN_PPM
             floor_src = "super-source"
@@ -2772,7 +2617,7 @@ def main(dry_run=False):
                 if DEBUG_TAGS:
                     all_tags.append(f"ⓘinb:{inbound_reason}")
 
-        # delta do inbound (para saber se vale a pena aplicar update)
+        # delta do inbound (para saber se vale a pena empurrar pro BOS)
         inbound_delta = abs(inbound_discount_ppm - prev_inb_discount)
         inbound_push_needed = (
             INBOUND_FEE_ENABLE and
@@ -2963,9 +2808,7 @@ def main(dry_run=False):
                     if new_ppm > local_ppm: excl_dry_up += 1
                     else: excl_dry_down += 1
                 else:
-                    method_label = fee_update_method(pubkey, chan_point)
-                    method_tag = f" ({method_label})" if method_label else ""
-                    action = f"DRY set {local_ppm}→{new_ppm} ppm{method_tag} {dstr}"
+                    action = f"DRY set {local_ppm}→{new_ppm} ppm {dstr}"
                     new_dir = dir_for_emoji
                     excl_note = " 🚷excl-dry" if is_excluded else ""
                     # 👉 conta mudança de inbound (qualquer alteração, mesmo com outbound)
@@ -3023,12 +2866,11 @@ def main(dry_run=False):
                 try:
                     if pubkey or chan_point:
                         if INBOUND_FEE_ENABLE:
-                            method_label = set_channel_fees(pubkey, chan_point, final_ppm, inbound_discount_ppm, base_fee_msat=base_fee_msat)
+                            set_channel_fees(pubkey, chan_point, final_ppm, inbound_discount_ppm, base_fee_msat=base_fee_msat)
                         else:
                             # comportamento antigo: só setar out_ppm
-                            method_label = set_channel_fees(pubkey, chan_point, final_ppm, None, base_fee_msat=base_fee_msat)
-                        method_tag = f" ({method_label})" if method_label else ""
-                        action = f"set {local_ppm}→{new_ppm} ppm{method_tag} {dstr}"
+                            set_channel_fees(pubkey, chan_point, final_ppm, None, base_fee_msat=base_fee_msat)
+                        action = f"set {local_ppm}→{new_ppm} ppm {dstr}"
                         new_dir = dir_for_emoji
                         # 👉 conta mudança de inbound (qualquer alteração, mesmo com outbound)
                         try:
@@ -3208,8 +3050,7 @@ def main(dry_run=False):
     msg = "\n".join(report)
     print(msg)
     if not dry_run:
-        tg_msg = _format_telegram_report(report)
-        tg_send_big(tg_msg)
+        tg_send_big(msg)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -3218,7 +3059,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Simula: não aplica updates de fees; grava apenas campos de classificação se DRYRUN_SAVE_CLASS=True"
+        help="Simula: não aplica BOS; grava apenas campos de classificação se DRYRUN_SAVE_CLASS=True"
     )
     
     parser.add_argument(
@@ -3249,6 +3090,5 @@ if __name__ == "__main__":
         DIDACTIC_EXPLAIN_ENABLE = True
         DIDACTIC_LEVEL = "detailed"
 
-    logger.info("Executando AutoFee standalone")
+
     main(dry_run=args.dry_run)
-    logger.info("AutoFee finalizado")

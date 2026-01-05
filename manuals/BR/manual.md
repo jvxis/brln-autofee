@@ -51,7 +51,7 @@
 
 * `MIN_PPM = 10` | `MAX_PPM = 2000` (clamp final)
 * `COLCHAO_PPM = 25`
-* (Há `BASE_FEE_MSAT = 0`, mas hoje não é usado; ver “Legados”)
+* `BASE_FEE_MSAT = 0` (usado nas atualizações por canal). Em super-source, o base fee passa para `SUPER_SOURCE_BASE_FEE_MSAT` (ajuste para 0 se quiser manter base fee zero, ou outro valor).
 
 **Quando mexer:** `MAX_PPM↑` permite a estratégia **PEG** acompanhar outrates altos.
 
@@ -139,6 +139,11 @@
   * `DISCOVERY_HARDDROP_DAYS_NO_BASE = 6`
   * `DISCOVERY_HARDDROP_CAP_FRAC = 0.20`
   * `DISCOVERY_HARDDROP_COLCHAO = 10`
+* Gate com Explorer:
+
+  * `DISCOVERY_REQUIRE_EXPLORER = True`
+  * `DISCOVERY_AFTER_EXPLORER_DAYS = 14`
+  Discovery só entra depois do canal passar por Explorer e ficar pelo menos X dias após a saída.
 * Em discovery, **rebal-floor e outrate-floor** ficam **OFF** (fica só `MIN_PPM`).
 
 ### 2.11. Seed smoothing (EMA)
@@ -229,6 +234,21 @@
     (obs.: o soft-ceil está definido, mas o helper não é chamado no fluxo atual)
   * Source: `SOURCE_SEED_TARGET_FRAC = 0.55`, `SOURCE_DISABLE_OUTRATE_FLOOR = True`
   * Router: `ROUTER_STEP_CAP_BONUS = 0.02`
+
+#### Super-source (novo)
+
+* `SUPER_SOURCE_ENABLE = True`
+* `SUPER_SOURCE_OUTRATIO_MIN = 0.60`
+* `SUPER_SOURCE_OUT_AMT_1D_MULT = 0.5` (>= 0.5x da capacidade em 1d)
+* `SUPER_SOURCE_OUT_AMT_7D_MULT = 4.0` (>= 4x da capacidade em 7d)
+* `SUPER_SOURCE_MIN_FWDS_7D = 10`
+* `SUPER_SOURCE_ENTER_HOURS = 0` | `SUPER_SOURCE_EXIT_HOURS = 72`
+* `SUPER_SOURCE_BASE_FEE_MSAT = 1000`
+
+**Como usar:** canais classificados como `source` ou `router` que mantêm out_ratio alto e movimentam volume de saída (1d ou 7d) entram em super-source.
+O estado tem histerese: se parar de cumprir, sai após `EXIT_HOURS`. Quando ativo, o alvo e o piso podem chegar a `MIN_PPM`,
+e o base fee passa para `SUPER_SOURCE_BASE_FEE_MSAT` (via LNCLI/REST). Para manter base fee zero (ou outro valor),
+ajuste `SUPER_SOURCE_BASE_FEE_MSAT` (super-source) e `BASE_FEE_MSAT` (demais canais).
 
 ### 2.21. Extreme drain (drenado crônico **com demanda**)
 
@@ -343,6 +363,9 @@
 * `🏷️sink/source/router/unknown`, `🧭bias±`, `🧭<classe>:<conf>`
 * `🧩FA-candidate`, `🧩NRA-candidate`, `ⓘFA:{reason}`, `ⓘNRA:{reason}`
 * `TAG_SINK`, `TAG_SOURCE`, `TAG_ROUTER`, `TAG_UNKNOWN` (rótulos base das tags)
+* `super-source` (ativo) e `super-source-like` (router com crit?rio)
+* `super-source:warm` / `super-source-like:warm` (crit?rio ok, ainda em histerese)
+* `ssv1dX-v7dY-fZ` (debug: raz?es 1d/7d e forwards)
 
 **Segurança/estado**
 
@@ -383,6 +406,14 @@
 — Em **new-inbound** a queda ignora o cooldown.
 
 ---
+
+**(D) Super-source com base fee**
+
+```
+✅🔻 PeerSS: set 120→0 ppm | alvo 0 | out_ratio 0.92 | out_ppm7d≈0 | seed≈90 | floor≥0 | super-source super-source:target0
+```
+
+→ Entrou como super-source: o alvo/piso zeram o ppm e o base fee muda para `SUPER_SOURCE_BASE_FEE_MSAT` (configurável).
 
 ## 6) Perfis de tuning
 

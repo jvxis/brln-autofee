@@ -100,6 +100,11 @@
 → Políticas finas: `SINK_*`, `SOURCE_*`, `ROUTER_*`.
 ✅ Ajuste limiares se houver excesso de “router”.
 
+**super-source / super-source-like** - quando o canal entrou como super-source (ou router com critério).
+**super-source:warm / super-source-like:warm** - critérios ok, ainda em histerese.
+**ssv1dX-v7dY-fZ** - debug: razões 1d/7d e forwards.
+**super-source:target0** - debug quando o alvo foi forçado a `MIN_PPM`.
+
 ---
 
 ## 🛡️ Segurança / Status

@@ -124,6 +124,7 @@ class LndRestService:
         chan_point: str,
         ppm: int,
         inbound_discount_ppm: Optional[int],
+        base_fee_msat: Optional[int],
     ) -> Dict[str, Any]:
         parts = chan_point.split(":")
         if len(parts) != 2:
@@ -137,6 +138,8 @@ class LndRestService:
             "fee_rate_ppm": max(0, int(ppm)),
             "time_lock_delta": 80,
         }
+        if base_fee_msat is not None:
+            data["base_fee_msat"] = int(base_fee_msat)
 
         if inbound_discount_ppm is not None:
             data["inbound_fee"] = {
@@ -150,15 +153,18 @@ class LndRestService:
         ppm: int,
         *,
         inbound_discount_ppm: Optional[int] = None,
+        base_fee_msat: Optional[int] = None,
         dry_run: bool = False,
     ) -> Optional[str]:
         if dry_run:
             msg = f"[dry-run] REST update chan_point={chan_point[:16]}... fee_rate_ppm={ppm}"
             if inbound_discount_ppm is not None:
                 msg += f" inbound_fee_ppm={-inbound_discount_ppm}"
+            if base_fee_msat is not None:
+                msg += f" base_fee_msat={int(base_fee_msat)}"
             return msg
 
-        data = self._build_policy_payload(chan_point, ppm, inbound_discount_ppm)
+        data = self._build_policy_payload(chan_point, ppm, inbound_discount_ppm, base_fee_msat)
         try:
             url = f"{self.base_url}/v1/chanpolicy"
             logger.debug(f"Atualizando fee: chan_point={chan_point[:16]}... ppm={ppm}")
@@ -185,6 +191,7 @@ class LndRestService:
         ppm: int,
         *,
         inbound_discount_ppm: Optional[int] = None,
+        base_fee_msat: Optional[int] = None,
         dry_run: bool = False,
     ) -> Optional[str]:
         chan_points = self._get_chan_points_for_pubkey(pubkey)
@@ -198,6 +205,7 @@ class LndRestService:
                     chan_point,
                     ppm,
                     inbound_discount_ppm=inbound_discount_ppm,
+                    base_fee_msat=base_fee_msat,
                     dry_run=True,
                 )
                 if msg:
@@ -209,6 +217,7 @@ class LndRestService:
                 chan_point,
                 ppm,
                 inbound_discount_ppm=inbound_discount_ppm,
+                base_fee_msat=base_fee_msat,
                 dry_run=False,
             )
         return None
