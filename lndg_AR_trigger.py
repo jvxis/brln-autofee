@@ -86,6 +86,7 @@ KILL_SWITCH_ENABLE   = True
 KILL_COST_PPM        = 1500   # se custo global >= isso, permitimos OFF mesmo no fill-lock
 KILL_PRICE_HARD      = True   # se price-gate reprovar durante fill, permitimos OFF
 
+#DEPRECATED - PARAMETROS NO BANCO DE DADOS Via autofee
 # Bias por classe (fallback quando não houver bias_ema no state)
 CLASS_BIAS = {
     "sink":   +0.12,  # +12pp no alvo de outbound
