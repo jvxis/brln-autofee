@@ -113,6 +113,9 @@ ROI_SINK_BASELINE_MIN = 50     # só aplica 0.85 se baseline>=50
 ROI_USE_LOCAL_WHEN_DRAINED = True
 ROI_DRAIN_OUT_MAX = 0.12       # “muito drenado” < 12% outbound
 
+# Heuristica para tratar canal como "source" mesmo sem classificacao do AutoFee
+ENABLE_SOURCE_HEURISTIC = True
+
 # DEPRECATED - PARAMETROS NO BANCO DE DADOS
 # ===== Exclusões: exatamente como você colou =====
 EXCLUSION_LIST = [
@@ -127,6 +130,7 @@ FORCE_SOURCE_LIST = set([
     #"982400445448257543",   # Az Capital
     #"985022780663070721"  #LudwigTheAustrian
 ])
+
 
 # =========================
 # Utilidades
@@ -685,9 +689,11 @@ async def main():
             baseline  = get_baseline(state_af, cid)
             seed_last = get_last_seed(state_af, cid)
 
-            # SOURCE override (manual/heurístico)
+            # SOURCE override (manual/heuristico)
             cls_eff = cls
-            if (cid in FORCE_SOURCE_LIST) or looks_like_source(local_ppm, remote_ppm, out_r, baseline):
+            force_source = (cid in FORCE_SOURCE_LIST)
+            heuristic_source = ENABLE_SOURCE_HEURISTIC and looks_like_source(local_ppm, remote_ppm, out_r, baseline)
+            if force_source or heuristic_source:
                 if cls != "source":
                     log_append({"type":"class_override","cid":cid,"alias":alias,"from":cls,"to":"source"})
                 cls_eff = "source"
