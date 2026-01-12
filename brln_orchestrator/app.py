@@ -25,8 +25,8 @@ from logging_config import setup_logging, get_logger
 setup_logging()
 logger = get_logger("app")
 
-APP_VERSION = "0.4.15"
-APP_VERSION_DESC = "AutoFee Integrado - Melhorias AR Trigger - Chave True e False para Euristica Looks Like Source"
+APP_VERSION = "0.4.16"
+APP_VERSION_DESC = "AutoFee Integrado - Melhoria Lógica de Update de Taxa para modo Rest API"
 DEFAULT_DB_PATH = Path("brln_orchestrator.sqlite3")
 DEFAULT_SETTINGS = {
     "mode": "conservador",
