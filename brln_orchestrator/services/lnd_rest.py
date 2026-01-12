@@ -196,6 +196,10 @@ class LndRestService:
     ) -> Optional[str]:
         chan_points = self._get_chan_points_for_pubkey(pubkey)
         if not chan_points:
+            # Cache may be stale after channel changes; refresh once before failing.
+            self.refresh_channels()
+            chan_points = self._get_chan_points_for_pubkey(pubkey)
+        if not chan_points:
             raise RuntimeError(f"Canal nao encontrado para pubkey: {pubkey}")
 
         if dry_run:

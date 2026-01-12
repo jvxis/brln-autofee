@@ -1762,8 +1762,9 @@ def main(dry_run=False):
             cp = meta.get("chan_point")
             if cp:
                 live_info = live_by_point.get(cp)
-        #if (not live_info):
-        #    live_info = live_by_cid.get(cid)
+        if not live_info:
+            # Fallback to chan_id mapping when scid is missing or not aligned.
+            live_info = live_by_cid.get(cid)
 
         pubkey = (live_info or {}).get("remote_pubkey") or meta.get("remote_pubkey")
         chan_point = (live_info or {}).get("chan_point") or meta.get("chan_point")
