@@ -175,6 +175,45 @@ def read_version_info(path: str) -> Dict[str, str]:
 def clamp_ratio(x: float, lo=0.0, hi=1.0) -> float:
     return max(lo, min(hi, x))
 
+def compute_out_ratio(ch: Dict[str, Any]) -> Tuple[float, Dict[str, int]]:
+    """
+    Calcula out_ratio (local/capacidade) com fallback quando o LNDg entrega
+    capacidade inconsistente com local+remote.
+    Retorna (out_ratio, debug_dict).
+    """
+    local = int(ch.get("local_balance") or 0)
+    remote = int(ch.get("remote_balance") or 0)
+    cap_raw = int(ch.get("capacity") or 0)
+    cap_bal = local + remote
+
+    cap_used = cap_raw
+    reason = ""
+    if cap_bal > 0:
+        if cap_raw <= 0:
+            cap_used = cap_bal
+            reason = "cap_missing"
+        else:
+            # se diferir demais, confia nos saldos
+            delta = abs(cap_raw - cap_bal)
+            if (delta / cap_bal) > 0.05:
+                cap_used = cap_bal
+                reason = "cap_mismatch"
+
+    if cap_used <= 0:
+        cap_used = 1
+        if not reason:
+            reason = "cap_zero"
+
+    out_ratio = local / cap_used
+    return out_ratio, {
+        "local": local,
+        "remote": remote,
+        "cap_raw": cap_raw,
+        "cap_used": cap_used,
+        "cap_bal": cap_bal,
+        "cap_reason": reason,
+    }
+
 def chunk_text(s: str, n: int = 4000):
     while s:
         if len(s) <= n:
@@ -647,9 +686,19 @@ async def main():
             return
         logger.info(f"Canais carregados: {len(channels)}")
 
-        # 2) Outbound global
-        total_cap = sum(int(c.get("capacity") or 0) for c in channels)
-        total_loc = sum(int(c.get("local_balance") or 0) for c in channels)
+        # 2) Outbound global (com correção de capacidade inconsistente)
+        total_cap = 0
+        total_loc = 0
+        cap_fixups = 0
+        for c in channels:
+            _, dbg = compute_out_ratio(c)
+            # soma local sempre
+            total_loc += dbg["local"]
+            # soma cap "corrigida" quando disponível
+            if dbg["cap_used"] > 0:
+                total_cap += dbg["cap_used"]
+            if dbg["cap_reason"] in ("cap_missing", "cap_mismatch", "cap_zero"):
+                cap_fixups += 1
         global_out_ratio = (total_loc / total_cap) if total_cap else 0.0
 
         # 3) Custos de rebal 7d
@@ -673,9 +722,7 @@ async def main():
             if not cid or cid in EXCLUSION_LIST:
                 continue
 
-            cap   = max(1, int(ch.get("capacity") or 0))
-            loc   = int(ch.get("local_balance") or 0)
-            out_r = loc / cap
+            out_r, cap_dbg = compute_out_ratio(ch)
 
             alias       = ch.get("alias") or "unknown"
             local_ppm   = int(ch.get("local_fee_rate") or 0)
@@ -684,6 +731,20 @@ async def main():
             out_t_cur   = int(ch.get("ar_out_target") or -1)
             in_t_cur    = int(ch.get("ar_in_target") or -1)
             ar_max_cost = float(ch.get("ar_max_cost") or 0.0)
+
+            if cap_dbg.get("cap_reason"):
+                log_append({
+                    "type": "cap_fixup",
+                    "cid": cid,
+                    "alias": alias,
+                    "reason": cap_dbg.get("cap_reason"),
+                    "local": cap_dbg.get("local"),
+                    "remote": cap_dbg.get("remote"),
+                    "cap_raw": cap_dbg.get("cap_raw"),
+                    "cap_used": cap_dbg.get("cap_used"),
+                    "cap_bal": cap_dbg.get("cap_bal"),
+                    "out_ratio": round(out_r, 4),
+                })
 
             # Classe/demanda do AutoFee
             cls       = get_class_label(state_af, cid)
@@ -1046,10 +1107,12 @@ async def main():
         if changes > 0:
             save_json(STATE_PATH, state_af)
 
+        cap_fixups_txt = f" | cap_fixups={cap_fixups}" if cap_fixups else ""
         header = (f"⚡ LNDg AR Trigger v{vstr} "
           f"| chans={len(channels)} "
           f"| global_out={global_out_ratio:.2f} "
           f"| rebal7d(global)≈{int(global_cost_ppm or 0)}ppm "
+          f"{cap_fixups_txt}"
           f"| mudanças={changes} "
           f"| on={cnt_on} | off={cnt_off} | target={cnt_target}")
 
