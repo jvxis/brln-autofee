@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..presets import get_mode_presets
 from ..services.lndg_api import LNDgAPI
 from ..services.lndg_db import LNDgDatabase
+from ..services.lnd_rest import LndRestService
+from ..services.lncli import LncliService
 from ..services.telegram import TelegramService
 from ..storage import Storage
 
@@ -32,16 +34,21 @@ class ARTriggerEngine:
         lndg_api: LNDgAPI,
         telegram: TelegramService,
         legacy_path: Path,
+        lncli: Optional[LncliService] = None,
+        lnd_rest: Optional[LndRestService] = None,
     ) -> None:
         self.storage = storage
         self.lndg_api = lndg_api
         self.telegram = telegram
         self.legacy = _load_legacy(legacy_path)
+        self.lncli = lncli
+        self.lnd_rest = lnd_rest
         self._legacy_load_autofee_params = None
         self._autofee_param_overrides: Dict[str, float] = {}
         self._dry_run = False
         self._pending_updates: list[tuple[str, Dict[str, Any]]] = []
         self._captured_messages: list[str] = []
+        self._balance_stats: Dict[str, Any] = {}
 
     def _load_json(self, name: str) -> Dict[str, Any]:
         if name == self.legacy.CACHE_PATH:
@@ -65,7 +72,37 @@ class ARTriggerEngine:
             self.telegram.send(text)
 
     async def _fetch_all_channels(self, session: Any) -> list[Dict[str, Any]]:  # session unused
-        return self.lndg_api.list_channels()
+        lndg_channels = self.lndg_api.list_channels()
+        lnd_map_by_cid, lnd_map_by_point, source, lnd_total, err = self._build_balance_map()
+        used_lnd = 0
+        used_lndg = 0
+
+        for ch in lndg_channels:
+            cid = self._normalize_chan_id(ch.get("chan_id"))
+            bal = lnd_map_by_cid.get(cid) if cid else None
+            if not bal:
+                point = ch.get("channel_point") or ch.get("chan_point")
+                if point:
+                    bal = lnd_map_by_point.get(point)
+            if bal:
+                ch["local_balance"] = bal["local_balance"]
+                ch["remote_balance"] = bal["remote_balance"]
+                ch["capacity"] = bal["capacity"]
+                ch["_balance_source"] = source
+                used_lnd += 1
+            else:
+                ch["_balance_source"] = "lndg"
+                used_lndg += 1
+
+        self._balance_stats = {
+            "source": source,
+            "lnd_total": lnd_total,
+            "lnd_used": used_lnd,
+            "lndg_total": len(lndg_channels),
+            "lndg_used": used_lndg,
+            "error": err,
+        }
+        return lndg_channels
 
     async def _update_channel(self, session: Any, chan_id: str, payload: Dict[str, Any]) -> None:
         self._pending_updates.append((chan_id, payload))
@@ -109,6 +146,7 @@ class ARTriggerEngine:
         self._dry_run = dry_run
         self._pending_updates = []
         self._captured_messages = []
+        self._balance_stats = {}
 
         secrets = self.storage.get_secrets()
         self._apply_mode_presets(mode or "conservador", legacy)
@@ -182,6 +220,22 @@ class ARTriggerEngine:
                 header = self._captured_messages[-1].splitlines()[0]
                 summary_lines.append(f"Telegram disabled; preview: {header}")
 
+        if self._balance_stats:
+            src = self._balance_stats.get("source") or "lndg"
+            lnd_used = self._balance_stats.get("lnd_used", 0)
+            lnd_total = self._balance_stats.get("lnd_total", 0)
+            lndg_used = self._balance_stats.get("lndg_used", 0)
+            lndg_total = self._balance_stats.get("lndg_total", 0)
+            if src == "lndg":
+                summary_lines.append("AR balances: fallback LNDg (REST/LNCLI indisponivel).")
+            else:
+                summary_lines.append(
+                    f"AR balances: {src} usado {lnd_used}/{lndg_total} canais (lnd_total={lnd_total}); fallback LNDg {lndg_used}."
+                )
+            err = self._balance_stats.get("error")
+            if err:
+                summary_lines.append(f"AR balances aviso: {err}")
+
         segments = []
         if exclusion_notes:
             segments.append("\n".join(exclusion_notes))
@@ -193,6 +247,47 @@ class ARTriggerEngine:
         if summary:
             segments.append(summary)
         return "\n\n".join(seg for seg in segments if seg)
+
+    def _build_balance_map(self) -> Tuple[Dict[str, Dict[str, int]], Dict[str, Dict[str, int]], str, int, Optional[str]]:
+        channels: List[Dict[str, Any]] = []
+        source = ""
+        err: Optional[str] = None
+
+        if self.lnd_rest is not None:
+            try:
+                channels = self.lnd_rest.list_channels()
+                source = "rest"
+            except Exception as exc:
+                err = f"rest: {exc}"
+                channels = []
+                source = ""
+
+        if not channels and self.lncli is not None:
+            try:
+                data = self.lncli.listchannels()
+                channels = data.get("channels", [])
+                source = "lncli"
+            except Exception as exc:
+                err = f"{err}; lncli: {exc}" if err else f"lncli: {exc}"
+                channels = []
+                source = ""
+
+        by_cid: Dict[str, Dict[str, int]] = {}
+        by_point: Dict[str, Dict[str, int]] = {}
+        for ch in channels:
+            cid = self._normalize_chan_id(ch.get("chan_id"))
+            info = {
+                "capacity": int(ch.get("capacity") or 0),
+                "local_balance": int(ch.get("local_balance") or 0),
+                "remote_balance": int(ch.get("remote_balance") or 0),
+            }
+            point = ch.get("channel_point") or ch.get("chan_point")
+            if cid:
+                by_cid[cid] = dict(info)
+            if point:
+                by_point[str(point)] = dict(info)
+
+        return by_cid, by_point, source, len(channels), err
 
     def _apply_mode_presets(self, mode: str, legacy) -> None:
         presets = get_mode_presets(mode)
@@ -231,6 +326,11 @@ class ARTriggerEngine:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
             value = value[1:-1]
         return value.strip()
+
+    @staticmethod
+    def _normalize_chan_id(value: Any) -> str:
+        text = str(value or "").strip()
+        return text if text.isdigit() else ""
 
 
 def _wrap_load_rebal_costs(func, table_name: str):

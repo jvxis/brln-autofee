@@ -26,7 +26,7 @@ setup_logging()
 logger = get_logger("app")
 
 APP_VERSION = "0.4.17"
-APP_VERSION_DESC = "AutoFee Integrado - Correções e Melhorias"
+APP_VERSION_DESC = "AutoFee Integrado - AR trigger usando LND REST API"
 DEFAULT_DB_PATH = Path("brln_orchestrator.sqlite3")
 DEFAULT_SETTINGS = {
     "mode": "conservador",
@@ -349,6 +349,8 @@ def instantiate_engines(storage: Storage, services: Dict[str, Any]) -> Dict[str,
             lndg_api=services["lndg_api"],
             telegram=services["telegram"],
             legacy_path=root / "lndg_AR_trigger.py",
+            lncli=services["lncli"],
+            lnd_rest=services.get("lnd_rest"),
         )
     tuner_engine = ParamTunerEngine(
         storage=storage,
